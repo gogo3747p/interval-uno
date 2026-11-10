@@ -1,0 +1,2743 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <!-- 允許使用者雙指縮放；viewport-fit=cover 讓瀏海/圓角螢幕能正確避開 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Interval UNO - 經典線上對戰風格 雙語音樂音程大冒險</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts: Fredoka & Noto Sans TC -->
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Noto+Sans+TC:wght@500;700;900&display=swap" rel="stylesheet">
+    <style>
+        /* =========================================================
+           1. 尺寸變數：卡片大小會依「螢幕寬度」與「螢幕高度」取較小者，
+              所以手機直拿、橫拿、平板、電腦、投影都不會被切掉。
+              --zoom 是老師可用 A−／A＋ 手動微調的倍率。
+           ========================================================= */
+        :root {
+            --vh: 1vh;
+            --zoom: 1;
+
+            /* 手牌寬度、中央牌寬度（基準值，手機直向/一般） */
+            --hw: clamp(52px, min(19vw, calc(var(--vh) * 21)), 130px);
+            --cw: clamp(70px, min(34vw, calc(var(--vh) * 27)), 230px);
+
+            /* 套用 zoom 後的實際大小，並設上限避免超出螢幕寬度 */
+            --hand-w:   min(calc(var(--hw) * var(--zoom)), 40vw);
+            --center-w: min(calc(var(--cw) * var(--zoom)), calc((100vw - 76px) / 2.15));
+        }
+        @supports (height: 100dvh) {
+            :root { --vh: 1dvh; }
+        }
+
+        /* 手機橫拿（高度很矮）：卡片改以高度為主要依據 */
+        @media (orientation: landscape) and (max-height: 600px) {
+            :root {
+                --hw: clamp(46px, calc(var(--vh) * 17), 100px);
+                --cw: clamp(64px, calc(var(--vh) * 25), 150px);
+            }
+        }
+
+        /* 大螢幕（平板橫放、筆電、電視、投影） */
+        @media (min-width: 900px) and (min-height: 600px) {
+            :root {
+                --hw: clamp(70px, min(7.5vw, calc(var(--vh) * 16)), 130px);
+                --cw: clamp(100px, min(12vw, calc(var(--vh) * 22)), 220px);
+            }
+        }
+
+        /* =========================================================
+           2. 整體框架
+           ========================================================= */
+        html, body {
+            height: 100%;
+            height: 100dvh;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Fredoka', 'Noto Sans TC', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-text-size-adjust: 100%;
+            touch-action: manipulation;      /* 避免連點誤觸縮放，但仍可雙指縮放 */
+            background: #0f172a;
+            color: #f8fafc;
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding:
+                max(6px, env(safe-area-inset-top))
+                max(6px, env(safe-area-inset-right))
+                max(6px, env(safe-area-inset-bottom))
+                max(6px, env(safe-area-inset-left));
+        }
+
+        .app-header { flex: none; }
+
+        .game-wrapper {
+            flex: 1;
+            min-height: 0;
+            width: 100%;
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .arcade-table-felt {
+            background: radial-gradient(circle at center, #f59e0b 0%, #d97706 45%, #b45309 80%, #78350f 100%);
+            border: 3px solid #fef08a;
+            box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.6), 0 10px 25px rgba(0, 0, 0, 0.8);
+            border-radius: 18px;
+            position: relative;
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding: 6px;
+            overflow: hidden;
+        }
+
+        .gold-rim {
+            background: linear-gradient(180deg, #fef08a 0%, #eab308 30%, #a16207 70%, #451a03 100%);
+            border-radius: 22px;
+            padding: 4px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.7);
+            overflow: hidden;
+        }
+
+        /* =========================================================
+           3. 對手區 + 中央出牌區（arena）
+              手機/平板直向：三位對手排成一排在上方，中央牌區在下面
+              大螢幕：還原成 上方 / 左右 / 中央 的經典牌桌
+           ========================================================= */
+        .arena {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-template-rows: auto 1fr;
+            grid-template-areas:
+                "l t r"
+                "c c c";
+            gap: 6px;
+            align-items: start;
+            -webkit-overflow-scrolling: touch;
+        }
+        .opp-wrap { display: flex; flex-direction: column; align-items: center; min-width: 0; z-index: 10; }
+        .opp-wrap.t { grid-area: t; }
+        .opp-wrap.l { grid-area: l; }
+        .opp-wrap.r { grid-area: r; }
+
+        .arcade-player-box {
+            background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%);
+            border: 2px solid #fbbf24;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+        }
+        .arcade-player-active {
+            border-color: #38bdf8 !important;
+            box-shadow: 0 0 20px #38bdf8, inset 0 0 8px #0284c7 !important;
+            animation: pulseActiveTurn 1.2s infinite alternate ease-in-out;
+        }
+        @keyframes pulseActiveTurn {
+            0%   { transform: scale(1); }
+            100% { transform: scale(1.03); }
+        }
+
+        .opp {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            border-radius: 14px;
+            width: 100%;
+            min-width: 0;
+            transition: all .2s;
+        }
+        .opp .avatar {
+            position: relative;
+            flex: none;
+            width: 30px; height: 30px;
+            border-radius: 999px;
+            border: 2px solid #fcd34d;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 18px;
+        }
+        .opp .avatar .role {
+            position: absolute; bottom: -4px; right: -6px;
+            background: #f59e0b; color: #020617;
+            font-size: 8px; font-weight: 900;
+            padding: 0 4px; border-radius: 999px; border: 1px solid #fff;
+        }
+        .opp .meta { min-width: 0; flex: 1; }
+        .opp .name {
+            font-size: 12px; font-weight: 900; color: #fde68a;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .opp .sub {
+            display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+            font-size: 10.5px; font-weight: 700; color: #7dd3fc;
+        }
+        .count-badge {
+            background: #dc2626; color: #fff; border-radius: 6px;
+            padding: 0 5px; font-weight: 700; font-size: 11px;
+        }
+
+        /* 對手手牌背面 (只在大螢幕顯示) */
+        .fan-h, .fan-v { display: none; }
+        .fan-h { align-items: center; min-height: 36px; margin-bottom: 4px; }
+        .fan-h > * + * { margin-left: -16px; }
+        .fan-v { flex-direction: column; align-items: center; }
+        .fan-v > * + * { margin-top: -24px; }
+
+        .hide-compact { display: none; }
+
+        /* 中央牌區 */
+        .center {
+            grid-area: c;
+            align-self: center;
+            justify-self: center;
+            display: grid;
+            justify-items: center;
+            align-content: center;
+            gap: 6px;
+            grid-template-areas: "banner" "mat" "sound";
+            max-width: 100%;
+            min-width: 0;
+        }
+        .center-banner {
+            grid-area: banner;
+            padding: 4px 10px;
+            border-radius: 12px;
+            background: rgba(15, 23, 42, 0.92);
+            border: 2px solid #fbbf24;
+            text-align: center;
+            max-width: 100%;
+            box-shadow: 0 8px 20px rgba(0,0,0,.5);
+        }
+        .banner-line {
+            display: flex; align-items: center; justify-content: center;
+            gap: 6px; flex-wrap: wrap;
+            font-size: clamp(11px, 2.8vw, 14px); font-weight: 900; color: #fde68a;
+        }
+        .banner-line .turn {
+            background: #fbbf24; color: #020617; padding: 1px 8px; border-radius: 6px;
+            font-size: .85em; font-weight: 800;
+        }
+        .banner-line .swatch {
+            width: 1.2em; height: 1.2em; border-radius: 999px; border: 2px solid #fff;
+            display: inline-block; box-shadow: 0 0 6px rgba(0,0,0,.6);
+        }
+
+        .mat {
+            grid-area: mat;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            gap: clamp(10px, 3vw, 28px);
+            padding: 8px 12px;
+            background: rgba(0, 0, 0, 0.4);
+            border: 2px solid rgba(251, 191, 36, 0.5);
+            border-radius: 16px;
+            box-shadow: 0 10px 25px rgba(0,0,0,.6);
+            max-width: 100%;
+        }
+        .pile { display: flex; flex-direction: column; align-items: center; }
+        .pile-label {
+            font-size: clamp(10px, 2.6vw, 13px);
+            font-weight: 800; color: #fde68a; margin-bottom: 3px; white-space: nowrap;
+        }
+
+        .sound-btn {
+            grid-area: sound;
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 5px 14px; min-height: 34px;
+            border-radius: 999px; border: 1px solid #fff;
+            background: linear-gradient(90deg, #facc15, #f59e0b);
+            color: #451a03; font-weight: 900; font-size: clamp(11px, 2.8vw, 13px);
+            box-shadow: 0 4px 10px rgba(0,0,0,.4);
+            transition: transform .1s;
+        }
+        .sound-btn:active { transform: scale(.95); }
+
+        /* =========================================================
+           4. 撲克牌本體：全部用 em，字體與內容會跟著牌寬自動縮放
+           ========================================================= */
+        .uno-card {
+            --w: var(--hand-w);
+            width: var(--w);
+            aspect-ratio: 5 / 7;
+            font-size: calc(var(--w) * 0.115);
+            border-radius: 1.1em;
+            padding: .5em;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            border: 2px solid #fff;
+            color: #fff;
+            position: relative;
+            overflow: hidden;
+            flex: none;
+            box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
+        }
+        .uno-card.center { --w: var(--center-w); }
+        .uno-card.dark-text { color: #422006; }
+        .uno-card .label { font-size: .78em; font-weight: 900; letter-spacing: .05em; opacity: .92; }
+        .uno-card .label.end { text-align: right; }
+        .uno-card .icon { font-size: 2.6em; font-weight: 900; text-align: center; margin: auto; line-height: 1; text-shadow: 0 1px 2px rgba(0,0,0,.25); }
+        .staffbox {
+            flex: 1;
+            min-height: 0;
+            position: relative;
+            background: #fffbeb;
+            border-radius: .7em;
+            border: 1px solid #fde68a;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,.12);
+        }
+        .staffbox svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+        .staffbox .sol {
+            position: absolute; font-size: .85em; font-weight: 900; color: #fff;
+            padding: 0 .35em; border-radius: .3em; box-shadow: 0 1px 3px rgba(0,0,0,.4);
+        }
+        .staffbox .sol.lo { bottom: .25em; left: .3em; background: rgba(2,132,199,.92); }
+        .staffbox .sol.hi { top: .25em; right: .3em; background: rgba(13,148,136,.92); }
+
+        /* 摸牌堆 */
+        .deck-back {
+            width: var(--center-w);
+            aspect-ratio: 5 / 7;
+            font-size: calc(var(--center-w) * 0.115);
+            background: linear-gradient(135deg, #dc2626, #e11d48 50%, #d97706);
+            border: 2px solid #fde68a;
+            border-radius: 1.1em;
+            box-shadow: 0 10px 22px rgba(0,0,0,.55);
+            cursor: pointer;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            position: relative;
+            transition: transform .12s;
+            color: #fff;
+        }
+        .deck-back:active { transform: scale(.95); }
+        .deck-back .disc {
+            width: 2.6em; height: 2.6em; border-radius: 999px;
+            background: rgba(252, 211, 77, .3);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.5em; margin-bottom: .3em;
+        }
+        .deck-back .t1 { font-size: .8em; font-weight: 900; color: #fef08a; letter-spacing: .06em; }
+        .deck-back .t2 { font-size: .75em; font-weight: 700; color: #fef3c7; }
+        .deck-count {
+            position: absolute; top: -.6em; right: -.6em;
+            background: #facc15; color: #020617;
+            font-size: .95em; font-weight: 900;
+            padding: 0 .5em; border-radius: 999px; border: 1px solid #fff;
+        }
+
+        /* =========================================================
+           5. 手牌區
+           ========================================================= */
+        .hand-area {
+            flex: none;
+            background: rgba(15, 23, 42, 0.95);
+            border: 2px solid #fbbf24;
+            border-radius: 16px;
+            padding: 6px 8px;
+            box-shadow: 0 10px 25px rgba(0,0,0,.5);
+            z-index: 20;
+            transition: box-shadow .2s, border-color .2s;
+        }
+        .hand-area.my-turn {
+            border-color: #38bdf8;
+            box-shadow: 0 0 18px rgba(56, 189, 248, .75);
+        }
+        .hand-head {
+            display: flex; justify-content: space-between; align-items: center;
+            gap: 8px; margin-bottom: 2px; padding: 0 2px;
+        }
+        .hand-title { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 900; color: #fde68a; min-width: 0; }
+        .hand-title .bag {
+            width: 26px; height: 26px; border-radius: 8px; background: #fbbf24; border: 1px solid #fff;
+            display: flex; align-items: center; justify-content: center; font-size: 15px; flex: none;
+        }
+        .hand {
+            display: flex;
+            align-items: center;
+            gap: calc(var(--hand-w) * 0.08);
+            overflow-x: auto;
+            overflow-y: hidden;
+            padding: 8px 4px 6px;
+            min-height: calc(var(--hand-w) * 1.4 + 14px);
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior-x: contain;
+            scrollbar-width: thin;
+            scrollbar-color: #f59e0b rgba(0,0,0,.4);
+        }
+        .hand::-webkit-scrollbar { height: 8px; }
+        .hand::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.4); border-radius: 8px; }
+        .hand::-webkit-scrollbar-thumb { background: #f59e0b; border-radius: 8px; border: 1px solid #fef3c7; }
+
+        .card-hover { transition: transform .2s cubic-bezier(0.34, 1.56, 0.64, 1); flex: none; }
+        .card-hover:active { transform: scale(.96); }
+        @media (hover: hover) {
+            .card-hover:hover { transform: translateY(-12px) scale(1.06); z-index: 50; }
+        }
+
+        .uno-btn-anim { animation: pulseGlow 1.2s ease-in-out infinite alternate; }
+        @keyframes pulseGlow {
+            0%   { transform: scale(1);    box-shadow: 0 0 10px rgba(234, 179, 8, 0.6); }
+            100% { transform: scale(1.05); box-shadow: 0 0 22px rgba(239, 68, 68, 0.9); }
+        }
+
+        /* =========================================================
+           6. 記錄簿：預設只顯示最新一行，點一下展開
+           ========================================================= */
+        .log-wrap {
+            flex: none;
+            background: rgba(0, 0, 0, 0.75);
+            border: 1px solid rgba(245, 158, 11, 0.4);
+            border-radius: 12px;
+            padding: 4px 8px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .log-head { display: none; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 900; color: #fcd34d; border-bottom: 1px solid #334155; padding-bottom: 2px; margin-bottom: 2px; }
+        #game-log { max-height: 1.5em; overflow: hidden; line-height: 1.5; color: #e2e8f0; font-weight: 500; }
+        .log-wrap.open #game-log { max-height: calc(var(--vh) * 28); overflow-y: auto; }
+        .log-hint { float: right; color: #fcd34d; font-size: 10px; margin-left: 6px; }
+
+        /* =========================================================
+           7. 頂端工具列：小螢幕只留圖示，文字標籤在寬螢幕才出現
+           ========================================================= */
+        .hbtn {
+            display: inline-flex; align-items: center; gap: 4px;
+            min-height: 34px; min-width: 34px; justify-content: center;
+            padding: 4px 9px; border-radius: 12px; font-weight: 700; font-size: 12px;
+            border-width: 1px; border-style: solid;
+            box-shadow: 0 3px 8px rgba(0,0,0,.35);
+            transition: background .15s, transform .1s;
+        }
+        .hbtn:active { transform: scale(.94); }
+        .btn-label { display: none; }
+        .brand-badge { display: none; }
+
+        /* =========================================================
+           8. 響應式斷點
+           ========================================================= */
+        @media (min-width: 640px) {
+            .btn-label { display: inline; }
+            .brand-badge { display: inline-block; }
+        }
+
+        /* 手機橫拿：中央牌區改成「牌在左、資訊在右」，手牌區資訊改成直排 */
+        @media (orientation: landscape) and (max-height: 600px) {
+            body { gap: 4px; }
+            .center {
+                grid-template-columns: auto auto;
+                grid-template-areas:
+                    "mat banner"
+                    "mat sound";
+                column-gap: 14px;
+                align-content: center;
+            }
+            .center-banner { align-self: end; }
+            .sound-btn { align-self: start; }
+            .mat { padding: 6px 10px; }
+            .hand-area { display: flex; align-items: center; gap: 8px; padding: 4px 8px; }
+            .hand-head { flex-direction: column; align-items: stretch; margin: 0; flex: none; gap: 4px; }
+            .hand { flex: 1; min-width: 0; padding-top: 6px; padding-bottom: 4px; }
+            .opp { padding: 2px 6px; }
+            .opp .avatar { width: 26px; height: 26px; font-size: 15px; }
+            .app-header { padding: 2px 6px !important; }
+            .app-header .brand-sub { display: none; }
+        }
+
+        /* 大螢幕：還原經典牌桌（對手在上方與左右兩側） */
+        @media (min-width: 900px) and (min-height: 600px) {
+            body { gap: 8px; }
+            .gold-rim { padding: 6px; border-radius: 38px; }
+            .arcade-table-felt { border-width: 6px; border-radius: 32px; padding: 10px; gap: 8px; }
+            .arena {
+                grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr);
+                grid-template-areas:
+                    ". t ."
+                    "l c r";
+                align-items: center;
+            }
+            .opp-wrap.t { align-self: start; }
+            .opp-wrap.l, .opp-wrap.r { flex-direction: row; gap: 10px; }
+            .opp-wrap.l { justify-content: flex-start; }
+            .opp-wrap.r { justify-content: flex-end; }
+            .opp.top { width: auto; padding: 6px 14px; }
+            .opp.side { flex-direction: column; width: auto; min-width: 108px; padding: 10px; text-align: center; }
+            .opp.side .sub { justify-content: center; }
+            .opp.side .name { white-space: normal; }
+            .opp .avatar { width: 38px; height: 38px; font-size: 22px; }
+            .opp .name { font-size: 13px; }
+            .opp .sub { font-size: 11px; }
+            .fan-h { display: flex; }
+            .fan-v { display: flex; }
+            .hide-compact { display: revert; }
+            .log-head { display: flex; }
+            #game-log { max-height: 3.2em; }
+            .hand-title { font-size: 14px; }
+            .banner-line { font-size: 14px; }
+        }
+
+        /* 很窄的手機（<=360px） */
+        @media (max-width: 360px) {
+            .opp .name { font-size: 11px; }
+            .opp .sub { font-size: 10px; }
+            .hbtn { padding: 4px 7px; }
+        }
+
+        /* =========================================================
+           9. 開始畫面（選擇難度）
+           ========================================================= */
+        .start-screen {
+            position: fixed;
+            inset: 0;
+            z-index: 40;
+            display: flex;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding:
+                max(14px, env(safe-area-inset-top))
+                max(14px, env(safe-area-inset-right))
+                max(14px, env(safe-area-inset-bottom))
+                max(14px, env(safe-area-inset-left));
+            background:
+                radial-gradient(ellipse at 50% 0%, rgba(217, 119, 6, .55) 0%, transparent 60%),
+                radial-gradient(ellipse at 50% 100%, rgba(124, 45, 18, .6) 0%, transparent 55%),
+                linear-gradient(180deg, #1e1b4b, #0f172a);
+            transition: opacity .35s ease, transform .35s ease;
+        }
+        .start-screen.hide { opacity: 0; transform: scale(1.04); pointer-events: none; }
+        .start-screen.gone { display: none; }
+        .start-inner { margin: auto; width: 100%; max-width: 760px; text-align: center; padding: 8px 0; }
+
+        @keyframes riseIn {
+            0%   { opacity: 0; transform: translateY(16px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+        .start-screen.intro .start-inner > * { animation: riseIn .55s ease-out both; }
+        .start-screen.intro .start-inner > *:nth-child(2) { animation-delay: .08s; }
+        .start-screen.intro .start-inner > *:nth-child(3) { animation-delay: .16s; }
+        .start-screen.intro .start-inner > *:nth-child(4) { animation-delay: .24s; }
+        .start-screen.intro .start-inner > *:nth-child(5) { animation-delay: .32s; }
+        .start-screen.intro .start-inner > *:nth-child(6) { animation-delay: .4s; }
+
+        .uno-card.mini { --w: clamp(52px, 12vw, 84px); }
+        .start-fan {
+            display: flex; justify-content: center; align-items: flex-end;
+            margin-bottom: 8px;
+            min-height: calc(clamp(52px, 12vw, 84px) * 1.4 + 22px);
+        }
+        .fan-item { transform: rotate(var(--r)); margin: 0 -7px; transform-origin: 50% 100%; }
+        .fan-item .uno-card { animation: floaty 2.6s ease-in-out infinite; }
+        .fan-item:nth-child(2) .uno-card { animation-delay: .35s; }
+        .fan-item:nth-child(3) .uno-card { animation-delay: .7s; }
+        @keyframes floaty {
+            0%, 100% { transform: translateY(0); }
+            50%      { transform: translateY(-9px); }
+        }
+
+        .start-brand h1 {
+            font-family: 'Fredoka', 'Noto Sans TC', sans-serif;
+            font-size: clamp(2rem, 8vw, 3.2rem);
+            font-weight: 700;
+            line-height: 1.05;
+            margin: 0;
+            background: linear-gradient(180deg, #fef08a, #f59e0b);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            filter: drop-shadow(0 3px 0 #78350f);
+        }
+        .start-brand p { margin: 6px 0 0; font-size: clamp(.8rem, 2.8vw, 1rem); font-weight: 700; color: #fde68a; opacity: .9; }
+        .start-prompt {
+            display: inline-block;
+            margin: 14px 0 0;
+            padding: 4px 16px;
+            border-radius: 999px;
+            background: rgba(15, 23, 42, .7);
+            border: 2px solid #fbbf24;
+            color: #fde68a;
+            font-weight: 900;
+            font-size: clamp(.85rem, 3vw, 1.05rem);
+        }
+
+        .level-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin: 14px 0 10px; }
+        @media (min-width: 560px) { .level-grid { grid-template-columns: 1fr 1fr; } }
+        .level-card {
+            display: flex; flex-direction: column; align-items: center; gap: 4px;
+            padding: 14px 14px 12px;
+            border-radius: 22px;
+            border: 3px solid;
+            color: #fff;
+            text-align: center;
+            cursor: pointer;
+            font-family: inherit;
+            box-shadow: 0 10px 24px rgba(0, 0, 0, .5);
+            transition: transform .15s, box-shadow .15s;
+        }
+        .level-card:active { transform: scale(.97); }
+        @media (hover: hover) { .level-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 16px 30px rgba(0,0,0,.6); } }
+        .level-card.beginner { background: linear-gradient(160deg, #059669, #065f46); border-color: #6ee7b7; }
+        .level-card.advanced { background: linear-gradient(160deg, #7c3aed, #4c1d95); border-color: #c4b5fd; }
+        .lv-emoji { font-size: 2.4rem; line-height: 1; }
+        .lv-name { font-size: 1.25rem; font-weight: 900; }
+        .lv-stars { font-size: .9rem; letter-spacing: .1em; color: #fde047; }
+        .lv-desc { font-size: .88rem; font-weight: 700; line-height: 1.45; }
+        .lv-desc span { display: block; font-size: .76rem; font-weight: 500; opacity: .85; }
+        .lv-go {
+            margin-top: 6px;
+            background: #fde047; color: #451a03;
+            font-weight: 900; padding: 6px 18px; border-radius: 999px; font-size: .92rem;
+            box-shadow: 0 3px 0 #a16207;
+        }
+
+        .start-links { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+        .start-link {
+            display: inline-flex; align-items: center; gap: 6px;
+            min-height: 36px; padding: 5px 14px;
+            border-radius: 999px; border: 1px solid rgba(251, 191, 36, .6);
+            background: rgba(15, 23, 42, .7); color: #fde68a;
+            font-weight: 800; font-size: .8rem;
+        }
+        .start-foot { margin-top: 10px; font-size: .75rem; color: #cbd5e1; font-weight: 600; opacity: .85; }
+
+        /* 手機橫拿：開始畫面精簡，兩個難度並排 */
+        @media (orientation: landscape) and (max-height: 520px) {
+            .start-fan, .start-foot { display: none; }
+            .level-grid { grid-template-columns: 1fr 1fr; margin: 10px 0 8px; }
+            .level-card { padding: 8px 10px; gap: 2px; }
+            .lv-emoji { font-size: 1.6rem; }
+            .lv-name { font-size: 1.05rem; }
+            .lv-desc span { display: none; }
+            .lv-go { padding: 3px 14px; margin-top: 2px; }
+            .start-prompt { margin-top: 8px; }
+        }
+
+        /* =========================================================
+           10. 發牌動畫
+           ========================================================= */
+        .fly-card {
+            position: fixed; left: 0; top: 0; z-index: 90;
+            pointer-events: none;
+            border-radius: 12%;
+            border: 2px solid #fde68a;
+            background: linear-gradient(135deg, #dc2626, #e11d48 50%, #d97706);
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 6px 14px rgba(0, 0, 0, .45);
+            will-change: transform;
+        }
+        .card-slot {
+            width: var(--center-w);
+            aspect-ratio: 5 / 7;
+            border: 2px dashed rgba(253, 230, 138, .55);
+            border-radius: calc(var(--center-w) * .127);
+            background: rgba(0, 0, 0, .15);
+        }
+        @keyframes flipReveal {
+            0%   { transform: perspective(600px) rotateY(88deg) scale(.9); }
+            100% { transform: perspective(600px) rotateY(0deg) scale(1); }
+        }
+        .flip-reveal { animation: flipReveal .45s ease-out; }
+        @keyframes popIn {
+            0%   { transform: scale(.55); opacity: .2; }
+            100% { transform: scale(1);   opacity: 1; }
+        }
+        .pop-in { animation: popIn .22s ease-out; }
+        .skip-deal { grid-area: sound; display: none; }
+        .skip-deal.show { display: inline-flex; }
+        .dealing-dots::after { content: ''; animation: dots 1.2s steps(4, end) infinite; }
+        @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+
+        @media (prefers-reduced-motion: reduce) {
+            .start-screen.intro .start-inner > *, .fan-item .uno-card, .uno-btn-anim { animation: none !important; }
+        }
+
+        /* =========================================================
+           11. 教學模式
+           ========================================================= */
+        .teach-section { margin: 4px 0 10px; }
+        .teach-section-title {
+            display: inline-block;
+            margin: 4px 0 8px;
+            padding: 3px 14px;
+            border-radius: 999px;
+            background: rgba(15, 23, 42, .7);
+            border: 2px solid #38bdf8;
+            color: #bae6fd;
+            font-weight: 900;
+            font-size: clamp(.82rem, 2.9vw, 1rem);
+        }
+        .teach-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+        @media (min-width: 560px) { .teach-grid { grid-template-columns: 1fr 1fr; } }
+        .teach-card {
+            display: flex; align-items: center; gap: 10px;
+            padding: 10px 14px;
+            border-radius: 18px;
+            border: 2px dashed;
+            background: rgba(15, 23, 42, .78);
+            color: #fff; text-align: left; cursor: pointer;
+            font-family: inherit;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, .4);
+            transition: transform .15s, background .15s;
+        }
+        .teach-card:active { transform: scale(.97); }
+        @media (hover: hover) { .teach-card:hover { transform: translateY(-3px); background: rgba(30, 41, 59, .95); } }
+        .teach-card.t-beginner { border-color: #6ee7b7; }
+        .teach-card.t-advanced { border-color: #c4b5fd; }
+        .tc-emoji { font-size: 1.9rem; line-height: 1; flex: none; }
+        .tc-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .tc-text b { font-size: .95rem; font-weight: 900; }
+        .tc-text small { font-size: .74rem; font-weight: 600; color: #cbd5e1; line-height: 1.4; }
+        @media (orientation: landscape) and (max-height: 520px) {
+            .teach-card { padding: 6px 10px; }
+            .tc-text small { display: none; }
+            .teach-section { margin: 0 0 6px; }
+        }
+
+        .teach-screen {
+            --accent: #34d399;
+            --accent-bg: #065f46;
+            --teach-w: clamp(90px, min(44vw, calc((var(--vh) * 100 - 270px) / 1.45)), 280px);
+            --prac-w:  clamp(72px, min(30vw, calc((var(--vh) * 100 - 330px) / 1.45)), 220px);
+            --ov-w:    clamp(54px, 19vw, 120px);
+            position: fixed;
+            inset: 0;
+            z-index: 45;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            overflow-x: hidden;
+            -webkit-overflow-scrolling: touch;
+            padding:
+                max(10px, env(safe-area-inset-top))
+                max(12px, env(safe-area-inset-right))
+                max(12px, env(safe-area-inset-bottom))
+                max(12px, env(safe-area-inset-left));
+            background:
+                radial-gradient(ellipse at 50% 0%, rgba(56, 189, 248, .26) 0%, transparent 55%),
+                radial-gradient(ellipse at 50% 100%, rgba(217, 119, 6, .32) 0%, transparent 55%),
+                linear-gradient(180deg, #1e1b4b, #0f172a);
+            animation: riseIn .35s ease-out;
+        }
+        .teach-screen[data-level="ADVANCED"] { --accent: #a78bfa; --accent-bg: #4c1d95; }
+        .teach-screen.gone { display: none; }
+        .teach-inner { width: 100%; max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+
+        .teach-top { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+        .teach-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 4px 14px; border-radius: 999px;
+            background: var(--accent-bg); border: 2px solid var(--accent);
+            color: #fff; font-weight: 900; font-size: clamp(.82rem, 3vw, 1.05rem);
+        }
+        .teach-steps { display: flex; gap: 6px; flex-wrap: wrap; }
+        .step-tab {
+            min-height: 36px; padding: 4px 12px; border-radius: 999px;
+            border: 2px solid rgba(251, 191, 36, .35);
+            background: rgba(15, 23, 42, .75); color: #cbd5e1;
+            font-family: inherit; font-weight: 800; font-size: .8rem; cursor: pointer;
+        }
+        .step-tab.on { background: var(--accent); border-color: #fff; color: #0f172a; }
+        .teach-sub { text-align: center; font-size: .82rem; font-weight: 700; color: #cbd5e1; }
+
+        .teach-phase { display: none; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
+        .teach-phase.show { display: flex; }
+
+        .uno-card.teach  { --w: var(--teach-w); }
+        .uno-card.teachp { --w: var(--prac-w); }
+        .uno-card.ov     { --w: var(--ov-w); }
+
+        /* ---- 步驟①：認識牌卡 ---- */
+        .learn-body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; flex: 1; }
+        .learn-stage { display: flex; align-items: center; justify-content: center; gap: clamp(6px, 2vw, 18px); }
+        .nav-arrow {
+            width: 44px; height: 44px; flex: none; border-radius: 999px;
+            border: 2px solid var(--accent); background: rgba(15, 23, 42, .85);
+            color: #fff; font-size: 1.05rem; font-weight: 900; cursor: pointer;
+            transition: transform .1s;
+        }
+        .nav-arrow:active { transform: scale(.9); }
+        .nav-arrow:disabled { opacity: .3; pointer-events: none; }
+        .learn-info { width: 100%; max-width: 560px; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+        .learn-info-body { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; }
+        .deg-zh {
+            font-family: 'Fredoka', 'Noto Sans TC', sans-serif;
+            font-size: clamp(2rem, 8vw, 3.2rem); font-weight: 700; line-height: 1;
+            background: linear-gradient(180deg, #fef08a, #f59e0b);
+            -webkit-background-clip: text; background-clip: text; color: transparent;
+            filter: drop-shadow(0 2px 0 #78350f);
+        }
+        .deg-en { font-weight: 800; color: #fde68a; font-size: clamp(.9rem, 3.2vw, 1.2rem); text-transform: capitalize; }
+        .sentence, .fb-sentence {
+            font-weight: 900; color: #fff; line-height: 1.25;
+        }
+        .sentence {
+            font-size: clamp(1.15rem, 4.8vw, 1.9rem);
+            padding: 6px 16px; border-radius: 16px;
+            background: rgba(15, 23, 42, .78); border: 2px solid rgba(251, 191, 36, .6);
+        }
+        .sentence .w, .fb-sentence .w {
+            color: #facc15; text-decoration: underline;
+            text-underline-offset: 5px; text-decoration-thickness: 3px;
+        }
+        .notes-line { font-weight: 800; color: #e2e8f0; font-size: .95rem; }
+        .count-cap { font-size: .78rem; color: #cbd5e1; font-weight: 700; }
+        .chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
+        .chip {
+            display: inline-flex; flex-direction: column; align-items: center;
+            min-width: 2.7em; padding: 2px 6px; border-radius: 10px;
+            background: #334155; border: 2px solid transparent;
+            color: #fff; font-weight: 900; font-size: .9rem; line-height: 1.15;
+        }
+        .chip b { font-size: .72em; opacity: .85; text-transform: capitalize; }
+        .chip.lo { background: #0284c7; border-color: #bae6fd; }
+        .chip.hi { background: #0d9488; border-color: #99f6e4; }
+
+        .learn-actions, .prac-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 2px; }
+        .tbtn {
+            min-height: 40px; padding: 6px 16px; border-radius: 14px;
+            border: 2px solid rgba(251, 191, 36, .6);
+            background: rgba(15, 23, 42, .88); color: #fde68a;
+            font-family: inherit; font-weight: 900; font-size: .88rem; cursor: pointer;
+            box-shadow: 0 3px 8px rgba(0, 0, 0, .35); transition: transform .1s;
+        }
+        .tbtn:active { transform: scale(.95); }
+        .tbtn:disabled { opacity: .4; pointer-events: none; }
+        .tbtn.primary { background: linear-gradient(135deg, #fde047, #f59e0b); color: #451a03; border-color: #fff; box-shadow: 0 4px 0 #a16207; }
+        .tbtn.sound { background: linear-gradient(135deg, #38bdf8, #0284c7); color: #fff; border-color: #e0f2fe; }
+        .tbtn.pulse { animation: pulseGlow 1.2s ease-in-out infinite alternate; }
+
+        .learn-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 12px; }
+        .learn-dots { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+        .dot {
+            width: 36px; height: 36px; border-radius: 999px;
+            border: 2px solid rgba(251, 191, 36, .4);
+            background: rgba(15, 23, 42, .8); color: #cbd5e1;
+            font-family: inherit; font-weight: 900; font-size: .9rem; cursor: pointer;
+        }
+        .dot.cur { background: var(--accent); border-color: #fff; color: #0f172a; }
+
+        .learn-grid {
+            display: none;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 10px 8px; justify-items: center; align-content: center; flex: 1;
+        }
+        .learn-grid.show { display: grid; }
+        .ov-cell {
+            display: flex; flex-direction: column; align-items: center; gap: 4px;
+            padding: 6px 4px; border-radius: 14px;
+            border: 2px solid transparent; background: transparent;
+            color: #fff; font-family: inherit; cursor: pointer;
+        }
+        .ov-cell.cur { border-color: var(--accent); background: rgba(15, 23, 42, .5); }
+        .ov-cap b { display: block; font-size: .95rem; color: #fde68a; }
+        .ov-cap span { font-size: .78rem; font-weight: 700; color: #e2e8f0; text-transform: capitalize; }
+
+        /* ---- 步驟②：抽牌練習 ---- */
+        .prac-head {
+            display: flex; justify-content: space-between; align-items: center; gap: 8px;
+            padding: 4px 14px; border-radius: 14px;
+            background: rgba(15, 23, 42, .78); border: 2px solid rgba(251, 191, 36, .45);
+            font-weight: 900; color: #fde68a; font-size: .95rem;
+        }
+        .prac-body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; flex: 1; }
+        .prac-left { display: flex; gap: clamp(10px, 3vw, 24px); align-items: flex-end; justify-content: center; }
+        .prac-right { width: 100%; max-width: 560px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+        .teach-deck { width: var(--prac-w); font-size: calc(var(--prac-w) * 0.115); }
+        .teach-deck.disabled { opacity: .45; pointer-events: none; filter: grayscale(.5); }
+        .teach-deck.ready { animation: pulseGlow 1.2s ease-in-out infinite alternate; }
+        .teach-slot { width: var(--prac-w); border-radius: calc(var(--prac-w) * .127); }
+        .prac-prompt { text-align: center; font-weight: 900; color: #fff; font-size: clamp(.95rem, 3.6vw, 1.3rem); }
+        .prac-prompt small { display: block; color: #fde68a; font-size: .8em; font-weight: 700; }
+
+        .t-ans-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; width: 100%; }
+        .t-ans {
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+            min-height: 54px; padding: 6px 2px; border-radius: 14px;
+            border: 2px solid rgba(251, 191, 36, .55);
+            background: rgba(30, 41, 59, .92); color: #fff;
+            font-family: inherit; cursor: pointer;
+            box-shadow: 0 3px 8px rgba(0, 0, 0, .35); transition: transform .1s;
+        }
+        .t-ans:active { transform: scale(.94); }
+        .t-ans .zh { font-weight: 900; font-size: clamp(.95rem, 3.6vw, 1.2rem); }
+        .t-ans .en { font-weight: 700; font-size: clamp(.68rem, 2.4vw, .85rem); color: #fde68a; text-transform: capitalize; }
+        .t-ans:disabled { opacity: .4; pointer-events: none; }
+        .t-ans.ok  { background: linear-gradient(135deg, #10b981, #047857); border-color: #a7f3d0; opacity: 1; }
+        .t-ans.bad { background: linear-gradient(135deg, #f43f5e, #be123c); border-color: #fecdd3; opacity: 1; }
+        .t-ans.ok .en, .t-ans.bad .en { color: #fff; }
+
+        .prac-feedback { width: 100%; }
+        .fb { border-radius: 16px; padding: 8px 12px; text-align: center; border: 2px solid; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+        .fb.ok  { background: rgba(5, 150, 105, .25); border-color: #34d399; }
+        .fb.bad { background: rgba(225, 29, 72, .22); border-color: #fb7185; }
+        .fb-title { font-weight: 900; font-size: clamp(.95rem, 3.6vw, 1.2rem); color: #fff; }
+        .fb-sentence { font-size: clamp(1.05rem, 4.2vw, 1.6rem); }
+        .fb-note { font-size: .85rem; font-weight: 700; color: #e2e8f0; }
+
+        .prac-result {
+            max-width: 560px; margin: auto; padding: 16px; width: 100%;
+            border-radius: 22px; background: rgba(15, 23, 42, .88); border: 3px solid var(--accent);
+            flex-direction: column; align-items: center; gap: 8px; text-align: center;
+        }
+        .res-score { font-family: 'Fredoka', sans-serif; font-size: clamp(2.4rem, 10vw, 3.6rem); font-weight: 700; color: #fde047; line-height: 1; }
+        .res-stars { font-size: 1.6rem; }
+
+        /* 橫拿 / 大螢幕：牌放左邊、說明與答案放右邊 */
+        @media (orientation: landscape) and (min-width: 640px) {
+            .teach-screen {
+                --teach-w: clamp(90px, min(30vw, calc((var(--vh) * 100 - 130px) / 1.45)), 320px);
+                --prac-w:  clamp(72px, min(15vw, calc((var(--vh) * 100 - 170px) / 1.45)), 230px);
+                --ov-w:    clamp(46px, 10vw, 130px);
+            }
+            .learn-body { flex-direction: row; gap: clamp(16px, 4vw, 48px); }
+            .learn-info { max-width: 46%; }
+            .prac-body { flex-direction: row; gap: clamp(16px, 4vw, 44px); }
+            .prac-left { flex: none; }
+            .prac-right { flex: 1; min-width: 0; }
+            .learn-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+            .deg-zh { font-size: clamp(2rem, 5vw, 3.4rem); }
+            .sentence { font-size: clamp(1.1rem, 2.6vw, 2rem); }
+        }
+
+        /* 擬態全螢幕（原生 Fullscreen API 被阻擋時使用） */
+        :fullscreen body, :-webkit-full-screen body { background: #020617 !important; }
+        .pseudo-fullscreen-active {
+            position: fixed !important;
+            inset: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            height: 100dvh !important;
+            z-index: 99999 !important;
+            background: #020617 !important;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- TOP HEADER / NAV BAR -->
+    <header class="app-header w-full max-w-[1400px] mx-auto bg-slate-900/95 backdrop-blur-md border-2 border-amber-400/80 rounded-2xl p-1.5 shadow-xl flex flex-wrap justify-between items-center gap-1.5">
+        <div class="flex items-center gap-2 min-w-0">
+            <div class="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-yellow-300 border-2 border-white flex items-center justify-center text-amber-950 text-xl shadow-md font-black shrink-0">
+                🎼
+            </div>
+            <div class="min-w-0">
+                <h1 class="text-sm sm:text-base font-black text-amber-300 flex items-center gap-1.5 whitespace-nowrap">
+                    <span>Interval UNO</span>
+                    <span class="brand-badge text-[9px] bg-red-600 text-white px-1.5 py-0.5 rounded-md font-bold tracking-wider uppercase shadow">線上大戰版</span>
+                </h1>
+                <p class="brand-sub text-[10px] text-amber-200/80 font-bold hidden md:block">雙語音樂音程卡牌對戰 • Bilingual Interval Game</p>
+            </div>
+        </div>
+
+        <div class="flex items-center flex-wrap justify-end gap-1.5">
+            <!-- CARD SIZE (手動調整卡片大小) -->
+            <div class="flex items-center gap-1">
+                <button onclick="changeZoom(-0.1)" class="hbtn bg-slate-800 hover:bg-slate-700 text-amber-200 border-amber-400/60" title="卡片縮小 Smaller cards" aria-label="卡片縮小">
+                    <span class="font-black text-[11px]">A−</span>
+                </button>
+                <button onclick="changeZoom(0.1)" class="hbtn bg-slate-800 hover:bg-slate-700 text-amber-200 border-amber-400/60" title="卡片放大 Larger cards" aria-label="卡片放大">
+                    <span class="font-black text-sm">A＋</span>
+                </button>
+            </div>
+            <!-- PITCH HELPER TOGGLE -->
+            <button onclick="togglePitchHelper()" id="helper-btn" class="hbtn bg-slate-800 hover:bg-slate-700 text-amber-300 border-amber-400/60" title="唱名提示 (教師)" aria-label="唱名提示">
+                <i class="fa-solid fa-lock text-amber-400 text-[11px]" id="helper-lock-icon"></i>
+                <span class="btn-label" id="helper-btn-text">💡 唱名提示：關</span>
+            </button>
+            <!-- PITCH REFERENCE CHART BUTTON -->
+            <button onclick="openChartModal()" class="hbtn bg-sky-950 hover:bg-sky-900 text-sky-200 border-sky-400/60" title="音高對照表" aria-label="音高對照表">
+                <i class="fa-solid fa-music text-sky-400 text-[11px]"></i>
+                <span class="btn-label">音高對照表</span>
+            </button>
+            <!-- DIFFICULTY TOGGLE -->
+            <button onclick="toggleDifficulty()" id="diff-btn" class="hbtn bg-emerald-950 hover:bg-emerald-900 text-emerald-200 border-emerald-400/60" title="切換難度" aria-label="切換難度">
+                <span>🌱</span><span class="btn-label">初階 (Do 起始)</span>
+            </button>
+            <!-- RULES BUTTON -->
+            <button onclick="openRulesModal()" class="hbtn bg-rose-950 hover:bg-rose-900 text-rose-200 border-rose-400/60" title="規則說明" aria-label="規則說明">
+                <i class="fa-solid fa-book-open text-rose-400 text-[11px]"></i>
+                <span class="btn-label">規則說明</span>
+            </button>
+            <!-- FULLSCREEN TOGGLE BUTTON -->
+            <button onclick="toggleFullScreen()" id="fullscreen-btn" class="hbtn bg-indigo-950 hover:bg-indigo-900 text-indigo-200 border-indigo-400/60" title="全螢幕" aria-label="全螢幕">
+                <i class="fa-solid fa-expand text-indigo-400 text-[11px]" id="fullscreen-icon"></i>
+                <span class="btn-label" id="fullscreen-text">全螢幕</span>
+            </button>
+            <!-- MENU BUTTON (回到開始畫面) -->
+            <button onclick="showStartScreen()" class="hbtn bg-slate-800 hover:bg-slate-700 text-amber-200 border-amber-400/60" title="主選單 / 選擇難度" aria-label="主選單">
+                <i class="fa-solid fa-house text-amber-400 text-[11px]"></i>
+                <span class="btn-label">主選單</span>
+            </button>
+            <!-- RESTART BUTTON -->
+            <button onclick="startNewGame()" class="hbtn bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white border-yellow-200 font-black" title="開局/重新開始" aria-label="開局/重新開始">
+                <i class="fa-solid fa-rotate-right text-[11px]"></i>
+                <span class="btn-label">開局/重新開始</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- MAIN GAME CONTAINER (GOLD RIM & FELT PLAYFIELD) -->
+    <main class="game-wrapper gold-rim">
+        <div class="arcade-table-felt">
+
+            <!-- 對手 + 中央牌區 -->
+            <div class="arena">
+
+                <!-- TOP OPPONENT: 小華 (班長) -->
+                <div class="opp-wrap t">
+                    <div id="bot1-cards-fan" class="fan-h"></div>
+                    <div id="bot1-card" class="opp top arcade-player-box">
+                        <div class="avatar bg-gradient-to-tr from-indigo-500 to-sky-400">👦🏻<span class="role hide-compact">班長</span></div>
+                        <div class="meta">
+                            <div class="name">小華<span class="hide-compact"> (Classmate Hua)</span></div>
+                            <div class="sub">
+                                <span id="bot1-count" class="count-badge">剩 7 張</span>
+                                <span class="text-yellow-400 hide-compact">🪙 5,200</span>
+                                <span id="bot1-status">等待中</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LEFT OPPONENT: 小明 (鼓手) -->
+                <div class="opp-wrap l">
+                    <div id="bot2-card" class="opp side arcade-player-box">
+                        <div class="avatar bg-gradient-to-tr from-emerald-500 to-teal-300">👦🏽</div>
+                        <div class="meta">
+                            <div class="name">小明<span class="hide-compact"> (鼓手)</span></div>
+                            <div class="sub">
+                                <span id="bot2-count" class="count-badge">剩 7 張</span>
+                                <span class="text-yellow-400 hide-compact">🪙 3,800</span>
+                                <span id="bot2-status">等待中</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="bot2-cards-fan" class="fan-v"></div>
+                </div>
+
+                <!-- CENTER PLAYFIELD TABLE -->
+                <div class="center">
+                    <div id="center-turn-indicator" class="center-banner"></div>
+
+                    <div class="mat">
+                        <!-- DRAW DECK (摸牌區) -->
+                        <div class="pile">
+                            <div class="pile-label">摸牌區 (Draw)</div>
+                            <div onclick="humanDrawCard()" class="deck-back" role="button" tabindex="0" aria-label="摸牌">
+                                <div class="disc">🎵</div>
+                                <div class="t1">DRAW DECK</div>
+                                <div class="t2">點我摸牌</div>
+                                <div id="deck-count" class="deck-count">38</div>
+                            </div>
+                        </div>
+
+                        <!-- DISCARD PILE (出牌區 / TOP CARD) -->
+                        <div class="pile">
+                            <div class="pile-label"><i class="fa-solid fa-star text-yellow-300"></i> 出牌區 (Played)</div>
+                            <div id="top-card-container" class="relative"></div>
+                        </div>
+                    </div>
+
+                    <button onclick="playTopCardAudio()" id="sound-btn" class="sound-btn">
+                        <i class="fa-solid fa-volume-high text-red-700"></i>
+                        <span>聽這張牌音程聲音</span>
+                    </button>
+                    <button onclick="skipDeal()" id="skip-deal-btn" class="sound-btn skip-deal">
+                        <i class="fa-solid fa-forward text-red-700"></i>
+                        <span>略過發牌 Skip</span>
+                    </button>
+                </div>
+
+                <!-- RIGHT OPPONENT: 小美 (琴童) -->
+                <div class="opp-wrap r">
+                    <div id="bot3-cards-fan" class="fan-v"></div>
+                    <div id="bot3-card" class="opp side arcade-player-box">
+                        <div class="avatar bg-gradient-to-tr from-pink-500 to-rose-300">👧🏻</div>
+                        <div class="meta">
+                            <div class="name">小美<span class="hide-compact"> (琴童)</span></div>
+                            <div class="sub">
+                                <span id="bot3-count" class="count-badge">剩 7 張</span>
+                                <span class="text-yellow-400 hide-compact">🪙 4,500</span>
+                                <span id="bot3-status">等待中</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- HUMAN PLAYER HAND AREA (樂樂 / 你的手牌) -->
+            <div id="hand-area" class="hand-area">
+                <div class="hand-head">
+                    <div class="hand-title">
+                        <div class="bag">🎒</div>
+                        <span>樂樂 (你的手牌):</span>
+                        <span id="player-card-count" class="bg-red-600 text-white font-black text-xs px-2 rounded-md shadow">7</span>
+                    </div>
+
+                    <button onclick="shoutUNO()" id="uno-btn" class="uno-btn-anim bg-gradient-to-r from-yellow-400 via-orange-500 to-red-600 text-white font-black text-xs px-3 py-1 rounded-lg shadow-lg border border-yellow-200 flex items-center justify-center gap-1 active:scale-90 whitespace-nowrap">
+                        <i class="fa-solid fa-bullhorn text-yellow-200 text-[10px]"></i>
+                        <span>大聲喊 UNO!</span>
+                    </button>
+                </div>
+
+                <!-- SCROLLABLE HAND CARDS CONTAINER -->
+                <div id="player-hand" class="hand"></div>
+            </div>
+
+            <!-- ANNOTATION PANEL / GAME LOG (點一下展開/收合) -->
+            <div id="log-wrap" class="log-wrap" onclick="this.classList.toggle('open')" title="點一下展開/收合完整記錄">
+                <div class="log-head">
+                    <span class="flex items-center gap-1">
+                        <i class="fa-solid fa-clipboard-list text-yellow-400"></i>
+                        <span>音樂對戰記錄簿 (Game Annotation Log)</span>
+                    </span>
+                    <div class="flex items-center gap-1">
+                        <span class="text-[10px] text-amber-200">當前匹配顏色:</span>
+                        <span id="color-indicator" class="w-3 h-3 rounded-full bg-rose-500 inline-block border border-white shadow-sm"></span>
+                    </div>
+                </div>
+                <div id="game-log">
+                    <span class="log-hint">▾ 點擊展開</span>
+                    <div>• 經典對戰開始！選擇相同顏色或相同音程度數的牌卡發動攻擊！</div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- START SCREEN：選擇難度 -->
+    <div id="start-screen" class="start-screen intro">
+        <div class="start-inner">
+            <div class="start-fan" id="start-fan" aria-hidden="true"></div>
+
+            <div class="start-brand">
+                <h1>Interval UNO</h1>
+                <p>雙語音樂音程卡牌對戰 • Bilingual Interval Card Game</p>
+            </div>
+
+            <div><span class="start-prompt">請選擇難度 Choose your level</span></div>
+
+            <div class="level-grid">
+                <button class="level-card beginner" onclick="chooseDifficulty('EASY')">
+                    <div class="lv-emoji">🌱</div>
+                    <div class="lv-name">初階 Beginner</div>
+                    <div class="lv-stars">★☆</div>
+                    <div class="lv-desc">每張牌的音程都從中央 Do 開始<br><span>Every interval starts from middle C (Do)</span></div>
+                    <div class="lv-go">開始遊戲 Play ▶</div>
+                </button>
+                <button class="level-card advanced" onclick="chooseDifficulty('ADVANCED')">
+                    <div class="lv-emoji">🌿</div>
+                    <div class="lv-name">進階 Advanced</div>
+                    <div class="lv-stars">★★</div>
+                    <div class="lv-desc">全音域 A3–C6，可能從任何音開始<br><span>Full range A3–C6, any starting note</span></div>
+                    <div class="lv-go">開始遊戲 Play ▶</div>
+                </button>
+            </div>
+
+            <div class="teach-section">
+                <div class="teach-section-title">📘 教學模式 Teaching Mode</div>
+                <div class="teach-grid">
+                    <button class="teach-card t-beginner" onclick="startTeaching('EASY')">
+                        <span class="tc-emoji">🌱</span>
+                        <span class="tc-text">
+                            <b>初階教學 Beginner Lesson</b>
+                            <small>從 Do 開始認識一到八度，再抽牌練習<br>Learn intervals from Do, then draw &amp; answer</small>
+                        </span>
+                    </button>
+                    <button class="teach-card t-advanced" onclick="startTeaching('ADVANCED')">
+                        <span class="tc-emoji">🌿</span>
+                        <span class="tc-text">
+                            <b>進階教學 Advanced Lesson</b>
+                            <small>牌卡從不同的音開始，再抽牌練習<br>Cards start from different notes, then draw &amp; answer</small>
+                        </span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="start-links">
+                <button class="start-link" onclick="openRulesModal()"><i class="fa-solid fa-book-open"></i> 規則說明</button>
+                <button class="start-link" onclick="openChartModal()"><i class="fa-solid fa-music"></i> 音高對照表</button>
+                <button class="start-link" id="resume-btn" style="display:none" onclick="resumeGame()"><i class="fa-solid fa-rotate-left"></i> 返回目前牌局</button>
+            </div>
+
+            <div class="start-foot">🎯 與小華、小明、小美對戰・每人 7 張牌 &nbsp;|&nbsp; Play vs 3 classmates · 7 cards each</div>
+        </div>
+    </div>
+
+    <!-- TEACH SCREEN：教學模式（① 認識牌卡 → ② 抽牌練習） -->
+    <div id="teach-screen" class="teach-screen gone" data-level="EASY">
+        <div class="teach-inner">
+            <div class="teach-top">
+                <button class="hbtn bg-slate-800 hover:bg-slate-700 text-amber-200 border-amber-400/60" onclick="exitTeaching()" aria-label="回到主選單 Menu">
+                    <i class="fa-solid fa-house text-amber-400 text-[11px]"></i>
+                    <span>主選單 Menu</span>
+                </button>
+                <div class="teach-badge" id="teach-badge">🌱 初階教學 Beginner Lesson</div>
+                <div class="teach-steps">
+                    <button class="step-tab on" id="step-learn" onclick="goLearn()">① 認識牌卡 Learn</button>
+                    <button class="step-tab" id="step-prac" onclick="goPractice()">② 抽牌練習 Practice</button>
+                </div>
+            </div>
+            <div class="teach-sub" id="teach-sub"></div>
+
+            <!-- 步驟①：認識牌卡 -->
+            <section id="teach-learn" class="teach-phase show">
+                <div id="learn-body" class="learn-body">
+                    <div class="learn-stage">
+                        <button class="nav-arrow" id="nav-prev" onclick="learnMove(-1)" aria-label="上一張 Previous">◀</button>
+                        <div id="learn-card"></div>
+                        <button class="nav-arrow" id="nav-next" onclick="learnMove(1)" aria-label="下一張 Next">▶</button>
+                    </div>
+                    <div class="learn-info">
+                        <div id="learn-info-body" class="learn-info-body"></div>
+                        <div class="learn-actions">
+                            <button class="tbtn sound" onclick="playLearnSound()">🔊 聽聽看 Listen</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="learn-grid" class="learn-grid"></div>
+                <div class="learn-footer">
+                    <div class="learn-dots" id="learn-dots"></div>
+                    <button class="tbtn" id="overview-btn" onclick="toggleOverview()">🔍 全部牌卡 Overview</button>
+                    <button class="tbtn primary" id="to-practice-btn" onclick="goPractice()">下一步：抽牌練習 Next: Practice ▶</button>
+                </div>
+            </section>
+
+            <!-- 步驟②：抽牌練習 -->
+            <section id="teach-practice" class="teach-phase">
+                <div class="prac-head">
+                    <span id="prac-prog">第 0/8 題 · Q0/8</span>
+                    <span id="prac-score">✅ 0</span>
+                </div>
+                <div id="prac-body" class="prac-body">
+                    <div class="prac-left">
+                        <div class="pile">
+                            <div class="pile-label">牌堆 Deck</div>
+                            <div id="teach-deck" class="deck-back teach-deck disabled" onclick="teachDraw()" role="button" tabindex="0" aria-label="抽牌 Draw a card">
+                                <div class="disc">🎵</div>
+                                <div class="t1">DRAW</div>
+                                <div class="t2">點我抽牌</div>
+                                <div id="teach-deck-count" class="deck-count">8</div>
+                            </div>
+                        </div>
+                        <div class="pile">
+                            <div class="pile-label">你抽到的牌 Your card</div>
+                            <div id="teach-drawn"></div>
+                        </div>
+                    </div>
+                    <div class="prac-right">
+                        <div id="prac-prompt" class="prac-prompt"></div>
+                        <div id="prac-ans-grid" class="t-ans-grid"></div>
+                        <div id="prac-feedback" class="prac-feedback"></div>
+                        <div id="prac-actions" class="prac-actions"></div>
+                    </div>
+                </div>
+                <div id="prac-result" class="prac-result" style="display:none"></div>
+            </section>
+        </div>
+    </div>
+
+    <!-- MODAL DIALOGS -->
+    <!-- PWD MODAL FOR TEACHER PITCH HELPER -->
+    <div id="pwd-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 hidden">
+        <div class="bg-slate-900 border-2 border-amber-400 rounded-3xl p-4 max-w-sm w-full text-center shadow-2xl text-white">
+            <div class="text-3xl mb-1">🔐</div>
+            <h3 class="text-base font-black text-amber-300 mb-1">教師教學輔助設定</h3>
+            <p class="text-xs text-slate-300 font-bold mb-2">請輸入教師密碼以啟用唱名提示 (Solfege Hints)</p>
+            <input type="password" id="pwd-input" placeholder="請輸入密碼 (tmes2026)" class="w-full px-3 py-1.5 bg-slate-800 border-2 border-amber-400/60 rounded-xl text-center text-base font-bold text-amber-200 mb-2 focus:outline-none focus:border-amber-400">
+            <div id="pwd-error" class="text-xs text-rose-400 font-bold mb-2 hidden">密碼錯誤！預設密碼為: tmes2026</div>
+            <div class="flex justify-center gap-2">
+                <button onclick="closePwdModal()" class="bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold px-4 py-2 rounded-xl text-xs">取消</button>
+                <button onclick="verifyPassword()" class="bg-amber-500 hover:bg-amber-600 text-slate-950 font-black px-4 py-2 rounded-xl text-xs shadow">確認解鎖</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- RULES MODAL -->
+    <div id="rules-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 hidden">
+        <div class="bg-slate-900 border-2 border-amber-400 rounded-3xl p-4 max-w-md w-full shadow-2xl overflow-y-auto text-white" style="max-height: calc(var(--vh) * 88);">
+            <div class="flex justify-between items-center border-b border-slate-700 pb-1.5 mb-2">
+                <h3 class="text-base font-black text-amber-300 flex items-center gap-1.5">
+                    <i class="fa-solid fa-book-open text-amber-400"></i>
+                    <span>Interval UNO 雙語規則說明</span>
+                </h3>
+                <button onclick="closeRulesModal()" class="text-slate-400 hover:text-white text-2xl font-black px-2 leading-none" aria-label="關閉">&times;</button>
+            </div>
+            <div class="text-xs text-slate-200 space-y-2 font-medium leading-relaxed">
+                <p><strong>🎯 遊戲目標：</strong> 最先將手牌出光的玩家獲得勝利！</p>
+                <p><strong>🃏 出牌規則：</strong> 輪到你時，必須打出與桌面中央「同顏色」或「同音程度數 (Degree)」的卡牌。</p>
+                <p><strong>🎵 音程對照 (Degree Rules)：</strong></p>
+                <ul class="list-disc pl-4 space-y-0.5 text-amber-200">
+                    <li><strong>1st Unison (1度)</strong>：同音重複或八度內相同音級</li>
+                    <li><strong>2nd Second (2度)</strong>：如 Do-Re / Re-Mi</li>
+                    <li><strong>3rd Third (3度)</strong>：如 Do-Mi / Re-Fa</li>
+                    <li><strong>4th Fourth (4度)</strong> / <strong>5th Fifth (5度)</strong> / <strong>6th Sixth (6度)</strong> / <strong>7th Seventh (7度)</strong> / <strong>8th Octave (8度)</strong></li>
+                </ul>
+                <p><strong>⚡ 功能牌：</strong> SKIP (跳過)、REVERSE (反轉)、DRAW 2 (+2摸牌)、WILD (萬用變色)。</p>
+            </div>
+            <button onclick="closeRulesModal()" class="w-full mt-3 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black py-2 rounded-xl text-xs shadow">關閉規則</button>
+        </div>
+    </div>
+
+    <!-- PITCH CHART REFERENCE MODAL -->
+    <div id="chart-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 hidden">
+        <div class="bg-slate-900 border-2 border-amber-400 rounded-3xl p-4 max-w-md w-full shadow-2xl overflow-y-auto text-white" style="max-height: calc(var(--vh) * 88);">
+            <div class="flex justify-between items-center border-b border-slate-700 pb-1.5 mb-2">
+                <h3 class="text-base font-black text-amber-300 flex items-center gap-1.5">
+                    <i class="fa-solid fa-music text-sky-400"></i>
+                    <span>雙語音程與音高對照表</span>
+                </h3>
+                <button onclick="closeChartModal()" class="text-slate-400 hover:text-white text-2xl font-black px-2 leading-none" aria-label="關閉">&times;</button>
+            </div>
+            <div class="space-y-1.5 text-xs font-bold">
+                <div class="grid grid-cols-3 bg-amber-500/30 border border-amber-400 p-1.5 rounded-xl text-center text-amber-200 font-black">
+                    <span>度數 Degree</span>
+                    <span>英文名稱</span>
+                    <span>中文說明</span>
+                </div>
+                <div class="grid grid-cols-3 p-1 bg-slate-800 rounded-lg text-center text-slate-200"><span>1度</span><span>1st Unison</span><span>完全一度/同音</span></div>
+                <div class="grid grid-cols-3 p-1 bg-slate-800/60 rounded-lg text-center text-slate-200"><span>2度</span><span>2nd Second</span><span>二度音程</span></div>
+                <div class="grid grid-cols-3 p-1 bg-slate-800 rounded-lg text-center text-slate-200"><span>3度</span><span>3rd Third</span><span>三度音程</span></div>
+                <div class="grid grid-cols-3 p-1 bg-slate-800/60 rounded-lg text-center text-slate-200"><span>4度</span><span>4th Fourth</span><span>四度音程</span></div>
+                <div class="grid grid-cols-3 p-1 bg-slate-800 rounded-lg text-center text-slate-200"><span>5度</span><span>5th Fifth</span><span>五度音程</span></div>
+                <div class="grid grid-cols-3 p-1 bg-slate-800/60 rounded-lg text-center text-slate-200"><span>6度</span><span>6th Sixth</span><span>六度音程</span></div>
+                <div class="grid grid-cols-3 p-1 bg-slate-800 rounded-lg text-center text-slate-200"><span>7度</span><span>7th Seventh</span><span>七度音程</span></div>
+                <div class="grid grid-cols-3 p-1 bg-slate-800/60 rounded-lg text-center text-slate-200"><span>8度</span><span>8th Octave</span><span>八度音程</span></div>
+            </div>
+            <button onclick="closeChartModal()" class="w-full mt-3 bg-sky-500 hover:bg-sky-600 text-slate-950 font-black py-2 rounded-xl text-xs shadow">關閉對照表</button>
+        </div>
+    </div>
+
+    <!-- WILD COLOR SELECTOR MODAL -->
+    <div id="wild-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 hidden">
+        <div class="bg-slate-900 border-2 border-amber-400 rounded-3xl p-4 max-w-xs w-full text-center shadow-2xl text-white">
+            <h3 class="text-base font-black text-amber-300 mb-2.5">🌈 請選擇萬用牌變更的顏色</h3>
+            <div class="grid grid-cols-2 gap-2 mb-1">
+                <button class="wild-color-btn bg-rose-600 text-white py-3 rounded-xl font-black shadow hover:scale-105 transition text-xs" data-wild-color="red">紅色 RED</button>
+                <button class="wild-color-btn bg-sky-600 text-white py-3 rounded-xl font-black shadow hover:scale-105 transition text-xs" data-wild-color="blue">藍色 BLUE</button>
+                <button class="wild-color-btn bg-emerald-600 text-white py-3 rounded-xl font-black shadow hover:scale-105 transition text-xs" data-wild-color="green">綠色 GREEN</button>
+                <button class="wild-color-btn bg-amber-400 text-slate-950 py-3 rounded-xl font-black shadow hover:scale-105 transition text-xs" data-wild-color="yellow">黃色 YELLOW</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- GAME OVER & TEACHER ASSESSMENT MODAL -->
+    <div id="gameover-modal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-3 hidden">
+        <div class="bg-slate-900 border-2 border-amber-400 rounded-3xl p-4 max-w-md w-full text-center shadow-2xl overflow-y-auto text-white" style="max-height: calc(var(--vh) * 92);">
+            <div id="winner-emoji" class="text-4xl mb-1">🏆</div>
+            <h2 id="winner-title" class="text-lg font-black text-amber-300 mb-0.5">勝利！Victory!</h2>
+            <p id="winner-desc" class="text-xs text-slate-300 font-bold mb-3">恭喜成功出光所有手牌！</p>
+
+            <div id="teacher-report-container"></div>
+
+            <div class="grid grid-cols-2 gap-2 mt-3">
+                <button onclick="document.getElementById('gameover-modal').classList.add('hidden'); startNewGame();" class="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-slate-950 font-black py-2.5 rounded-xl text-xs shadow-lg">再玩一局 (Play Again)</button>
+                <button onclick="showStartScreen()" class="bg-slate-700 hover:bg-slate-600 text-amber-200 font-black py-2.5 rounded-xl text-xs shadow-lg border border-amber-400/60">主選單 (Menu)</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // DIATONIC NOTES DEFINITION (A3 to C6)
+        const DIATONIC_NOTES = [
+            { name: "A", octave: 3, step: -4, solfege: "La", midi: 57 },
+            { name: "B", octave: 3, step: -3, solfege: "Ti", midi: 59 },
+            { name: "C", octave: 4, step: -2, solfege: "Do", midi: 60 },
+            { name: "D", octave: 4, step: -1, solfege: "Re", midi: 62 },
+            { name: "E", octave: 4, step: 0,  solfege: "Mi", midi: 64 },
+            { name: "F", octave: 4, step: 1,  solfege: "Fa", midi: 65 },
+            { name: "G", octave: 4, step: 2,  solfege: "Sol", midi: 67 },
+            { name: "A", octave: 4, step: 3,  solfege: "La", midi: 69 },
+            { name: "B", octave: 4, step: 4,  solfege: "Ti", midi: 71 },
+            { name: "C", octave: 5, step: 5,  solfege: "Do", midi: 72 },
+            { name: "D", octave: 5, step: 6,  solfege: "Re", midi: 74 },
+            { name: "E", octave: 5, step: 7,  solfege: "Mi", midi: 76 },
+            { name: "F", octave: 5, step: 8,  solfege: "Fa", midi: 77 },
+            { name: "G", octave: 5, step: 9,  solfege: "Sol", midi: 79 },
+            { name: "A", octave: 5, step: 10, solfege: "La", midi: 81 },
+            { name: "B", octave: 5, step: 11, solfege: "Ti", midi: 83 },
+            { name: "C", octave: 6, step: 12, solfege: "Do", midi: 84 }
+        ];
+
+        function getIntervalOrdinal(deg) {
+            // sentence：學生練習的英文句型，word 是用黃色底線標出的關鍵字
+            const ordinals = {
+                1: { en: "1st", article: "a",  zh: "1度 Unison",  sentence: { pre: "This is a ",  word: "unison",  post: "." } },
+                2: { en: "2nd", article: "a",  zh: "2度 Second",  sentence: { pre: "This is a ",  word: "second",  post: " interval." } },
+                3: { en: "3rd", article: "a",  zh: "3度 Third",   sentence: { pre: "This is a ",  word: "third",   post: " interval." } },
+                4: { en: "4th", article: "a",  zh: "4度 Fourth",  sentence: { pre: "This is a ",  word: "fourth",  post: " interval." } },
+                5: { en: "5th", article: "a",  zh: "5度 Fifth",   sentence: { pre: "This is a ",  word: "fifth",   post: " interval." } },
+                6: { en: "6th", article: "a",  zh: "6度 Sixth",   sentence: { pre: "This is a ",  word: "sixth",   post: " interval." } },
+                7: { en: "7th", article: "a",  zh: "7度 Seventh", sentence: { pre: "This is a ",  word: "seventh", post: " interval." } },
+                8: { en: "8th", article: "an", zh: "8度 Octave",  sentence: { pre: "This is an ", word: "octave",  post: "." } }
+            };
+            return ordinals[deg] || { en: `${deg}th`, article: "a", zh: `${deg}度` };
+        }
+
+        const CARD_COLORS = ['red', 'blue', 'green', 'yellow'];
+        // hex = 指示燈顏色；card = 牌面底色（直接用色碼，不依賴 Tailwind 動態產生）
+        const COLOR_MAP = {
+            red:    { hex: '#e11d48', card: '#e11d48', dark: false },
+            blue:   { hex: '#0284c7', card: '#0284c7', dark: false },
+            green:  { hex: '#059669', card: '#059669', dark: false },
+            yellow: { hex: '#f59e0b', card: '#fbbf24', dark: true  },
+            wild:   { hex: '#9333ea', card: '#9333ea', dark: false }
+        };
+
+        let gameState = {
+            deck: [],
+            discardPile: [],
+            players: [
+                { name: '樂樂 (你)', cards: [], isHuman: true },
+                { name: '小華 (班長)', cards: [], isHuman: false },
+                { name: '小明 (鼓手)', cards: [], isHuman: false },
+                { name: '小美 (琴童)', cards: [], isHuman: false }
+            ],
+            turn: 0, // 0: Human, 1: Bot1 (Hua), 2: Bot2 (Ming), 3: Bot3 (Mei)
+            direction: 1, // 1: clockwise
+            currentColor: 'red',
+            currentInterval: 1,
+            unoShouted: false,
+            difficulty: 'EASY',
+            showPitchHelper: false,
+            stats: {
+                humanValidPlays: 0,
+                humanInvalidPlays: 0,
+                humanCardsDrawn: 0,
+                intervalBreakdown: {}
+            }
+        };
+
+        let audioCtx = null;
+        let scrollHandToEndNext = false;
+
+        // ===== 發牌動畫狀態 =====
+        const DEAL_TOTAL = 28; // 4 位玩家 × 7 張
+        let dealToken = 0;     // 每次重新開局 +1，用來取消舊的發牌流程
+        let gameInProgress = false;
+        let dealView = { active: false, counts: [0, 0, 0, 0], sent: [0, 0, 0, 0], dealt: 0, startShown: false, handW: 64 };
+
+        function prefersReducedMotion() {
+            return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+        }
+        // 發牌期間，畫面只顯示「已經飛到位」的牌數
+        function shownCount(p) {
+            return dealView.active ? dealView.counts[p] : gameState.players[p].cards.length;
+        }
+        function playDealTick() {
+            if (!audioCtx || audioCtx.state !== 'running') return;
+            try {
+                const now = audioCtx.currentTime;
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(760, now);
+                osc.frequency.exponentialRampToValueAtTime(420, now + 0.05);
+                gain.gain.setValueAtTime(0.07, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(now);
+                osc.stop(now + 0.08);
+            } catch (e) {}
+        }
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playPianoTone(midiNumber, delay = 0, duration = 1.0) {
+            initAudio();
+            if (!audioCtx) return;
+
+            const freq = 440 * Math.pow(2, (midiNumber - 69) / 12);
+            const now = audioCtx.currentTime + delay;
+
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(freq, now);
+
+            gain.gain.setValueAtTime(0, now);
+            gain.gain.linearRampToValueAtTime(0.35, now + 0.03);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            osc.start(now);
+            osc.stop(now + duration);
+        }
+
+        function playCardIntervalSound(card) {
+            if (!card || card.type !== 'INTERVAL') return;
+            playPianoTone(card.lowerNote.midi, 0, 1.2);
+            playPianoTone(card.upperNote.midi, 0, 1.2);
+        }
+
+        function createCard(type, color, intervalDegree = 1, lowerIdx = 0) {
+            const lowerNote = DIATONIC_NOTES[lowerIdx];
+            const upperIdx = lowerIdx + (intervalDegree - 1);
+            const upperNote = DIATONIC_NOTES[upperIdx];
+
+            return {
+                id: 'card_' + Math.random().toString(36).substr(2, 9),
+                type,
+                color,
+                interval: intervalDegree,
+                lowerNote,
+                upperNote
+            };
+        }
+
+        function buildDeck() {
+            const deck = [];
+            CARD_COLORS.forEach(color => {
+                for (let degree = 1; degree <= 8; degree++) {
+                    let rootIdx;
+                    if (gameState.difficulty === 'EASY') {
+                        rootIdx = 2; // C4
+                    } else {
+                        const maxRootIdx = DIATONIC_NOTES.length - degree;
+                        rootIdx = Math.floor(Math.random() * (maxRootIdx + 1));
+                    }
+                    deck.push(createCard('INTERVAL', color, degree, rootIdx));
+                    deck.push(createCard('INTERVAL', color, degree, rootIdx));
+                }
+                deck.push(createCard('SKIP', color));
+                deck.push(createCard('REVERSE', color));
+                deck.push(createCard('DRAW2', color));
+            });
+
+            for (let i = 0; i < 4; i++) {
+                deck.push(createCard('WILD', 'wild'));
+                deck.push(createCard('WILD4', 'wild'));
+            }
+
+            return deck.sort(() => Math.random() - 0.5);
+        }
+
+        /**
+         * 畫出一張牌。variant = 'hand'（手牌）或 'center'（中央出牌區）。
+         * 牌的寬度由 CSS 變數決定，內部全部用 em，所以任何螢幕都會等比例縮放。
+         */
+        function renderCardSVG(card, variant = 'hand', opts = null) {
+            const colorData = COLOR_MAP[card.color] || COLOR_MAP.wild;
+            // variant：hand 手牌／center 中央／mini 開始畫面／teach 教學大牌／teachp 教學練習牌／ov 教學總覽
+            const sizeCls = ({ center: 'center', mini: 'mini', teach: 'teach', teachp: 'teachp', ov: 'ov' })[variant] || '';
+            const cls = `uno-card ${sizeCls} ${colorData.dark ? 'dark-text' : ''}`;
+            const bg = `background:${colorData.card};`;
+
+            if (card.type !== 'INTERVAL') {
+                let icon = '𝄠';
+                let label = card.type;
+                if (card.type === 'SKIP') { icon = '🚫'; label = 'SKIP'; }
+                if (card.type === 'REVERSE') { icon = '🔄'; label = 'REVERSE'; }
+                if (card.type === 'DRAW2') { icon = '+2'; label = 'DRAW 2'; }
+                if (card.type === 'WILD') { icon = '🌈'; label = 'WILD'; }
+                if (card.type === 'WILD4') { icon = '+4'; label = 'WILD +4'; }
+
+                return `
+                    <div class="${cls}" style="${bg}">
+                        <div class="label">${label}</div>
+                        <div class="icon">${icon}</div>
+                        <div class="label end">${label}</div>
+                    </div>
+                `;
+            }
+
+            // 五線譜座標：第一線 y=105，每一級（線↔間）= 6.5
+            const getNoteY = (step) => 105 - (step * 6.5);
+            const lowerY = getNoteY(card.lowerNote.step);
+            const upperY = getNoteY(card.upperNote.step);
+
+            const renderLedgerLines = (step, xCenter) => {
+                let lines = '';
+                const x1 = xCenter - 11;
+                const x2 = xCenter + 11;
+                const ln = (s) => `<line x1="${x1}" y1="${getNoteY(s)}" x2="${x2}" y2="${getNoteY(s)}" stroke="#475569" stroke-width="1.8" />`;
+                if (step <= -2) lines += ln(-2);
+                if (step <= -4) lines += ln(-4);
+                if (step >= 10) lines += ln(10);
+                if (step >= 12) lines += ln(12);
+                return lines;
+            };
+
+            // 符桿方向：B4 以上向下、其餘向上（標準記譜，也讓高音不會超出畫面）
+            const renderNote = (cx, cy, step, color) => {
+                const down = step >= 4;
+                const sx = down ? cx - 5 : cx + 5;
+                const sy2 = down ? cy + 20 : cy - 20;
+                return `
+                    <ellipse cx="${cx}" cy="${cy}" rx="6.8" ry="5.2" fill="${color}" transform="rotate(-20 ${cx} ${cy})" />
+                    <line x1="${sx}" y1="${cy}" x2="${sx}" y2="${sy2}" stroke="${color}" stroke-width="2" />
+                `;
+            };
+
+            // 教學模式可單張強制顯示唱名（opts.helper），不影響遊戲中的教師密碼設定
+            const showHelper = gameState.showPitchHelper || !!(opts && opts.helper);
+
+            return `
+                <div class="${cls}" style="${bg}">
+                    <div class="staffbox">
+                        <svg viewBox="12 18 96 122" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+                            <line x1="-200" y1="105" x2="300" y2="105" stroke="#64748b" stroke-width="1.8" />
+                            <line x1="-200" y1="92"  x2="300" y2="92"  stroke="#64748b" stroke-width="1.8" />
+                            <line x1="-200" y1="79"  x2="300" y2="79"  stroke="#64748b" stroke-width="1.8" />
+                            <line x1="-200" y1="66"  x2="300" y2="66"  stroke="#64748b" stroke-width="1.8" />
+                            <line x1="-200" y1="53"  x2="300" y2="53"  stroke="#64748b" stroke-width="1.8" />
+
+                            ${renderLedgerLines(card.lowerNote.step, 40)}
+                            ${renderLedgerLines(card.upperNote.step, 80)}
+
+                            ${renderNote(40, lowerY, card.lowerNote.step, '#0284c7')}
+                            ${renderNote(80, upperY, card.upperNote.step, '#0d9488')}
+                        </svg>
+                        ${showHelper ? `
+                            <div class="sol lo">${card.lowerNote.solfege}</div>
+                            <div class="sol hi">${card.upperNote.solfege}</div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        function logMessage(msg) {
+            const logEl = document.getElementById('game-log');
+            if (!logEl) return;
+            const line = document.createElement('div');
+            line.textContent = '• ' + msg;
+            const hint = logEl.querySelector('.log-hint');
+            // 最新訊息放最上面；提示字樣固定在第一行右側
+            if (hint && hint.nextSibling) {
+                logEl.insertBefore(line, hint.nextSibling);
+            } else {
+                logEl.appendChild(line);
+            }
+            while (logEl.children.length > 60) logEl.removeChild(logEl.lastChild);
+        }
+
+        function updateUI() {
+            let deckShown = gameState.deck.length;
+            if (dealView.active) {
+                const sentTotal = dealView.sent.reduce((a, b) => a + b, 0);
+                deckShown += (DEAL_TOTAL - sentTotal) + (dealView.startShown ? 0 : 1);
+            }
+            document.getElementById('deck-count').textContent = deckShown;
+
+            const topCard = gameState.discardPile[gameState.discardPile.length - 1];
+            const showTop = topCard && (!dealView.active || dealView.startShown);
+            document.getElementById('top-card-container').innerHTML = showTop
+                ? renderCardSVG(topCard, 'center')
+                : '<div class="card-slot" id="top-slot"></div>';
+
+            const hex = (COLOR_MAP[gameState.currentColor] || COLOR_MAP.wild).hex;
+            const colorInd = document.getElementById('color-indicator');
+            if (colorInd) colorInd.style.backgroundColor = hex;
+
+            const turnNames = ['樂樂 (你)', '小華 (班長)', '小明 (鼓手)', '小美 (琴童)'];
+            const turnIndicator = document.getElementById('center-turn-indicator');
+            if (turnIndicator) {
+                if (dealView.active) {
+                    turnIndicator.innerHTML = `
+                        <div class="banner-line">
+                            <span class="turn">🃏 發牌中 Dealing<span class="dealing-dots"></span></span>
+                        </div>
+                    `;
+                } else {
+                    const degInfo = getIntervalOrdinal(gameState.currentInterval);
+                    turnIndicator.innerHTML = `
+                        <div class="banner-line">
+                            <span class="turn">輪到: ${turnNames[gameState.turn]}</span>
+                            <span class="swatch" style="background:${hex}" title="當前顏色"></span>
+                            <span>${degInfo.sentence ? `${degInfo.sentence.pre}<span class="text-yellow-400 font-extrabold underline">${degInfo.sentence.word}</span>${degInfo.sentence.post}` : ''}</span>
+                        </div>
+                    `;
+                }
+            }
+
+            // Bot HUD
+            for (let b = 1; b <= 3; b++) {
+                const countEl = document.getElementById(`bot${b}-count`);
+                const statusEl = document.getElementById(`bot${b}-status`);
+                const cardEl = document.getElementById(`bot${b}-card`);
+
+                if (countEl) countEl.textContent = `剩 ${shownCount(b)} 張`;
+                if (statusEl) statusEl.textContent = dealView.active ? '🃏 發牌中' : (gameState.turn === b ? '⚡ 出牌中...' : '等待中');
+                if (cardEl) {
+                    cardEl.classList.toggle('arcade-player-active', !dealView.active && gameState.turn === b);
+                    cardEl.classList.toggle('opacity-90', dealView.active || gameState.turn !== b);
+                }
+            }
+
+            // Bot fans (大螢幕才會顯示)
+            const fillFan = (id, playerIdx, cls) => {
+                const fan = document.getElementById(id);
+                if (!fan) return;
+                fan.innerHTML = '';
+                const cardsCount = Math.min(shownCount(playerIdx), 8);
+                for (let i = 0; i < cardsCount; i++) {
+                    const cardBack = document.createElement('div');
+                    cardBack.className = cls;
+                    cardBack.innerHTML = `<span style="opacity:.8">🎵</span>`;
+                    fan.appendChild(cardBack);
+                }
+            };
+            const backH = "w-6 h-8 bg-gradient-to-br from-red-600 via-rose-600 to-amber-500 rounded-md border border-amber-200 shadow-sm flex items-center justify-center text-[9px] text-white font-bold select-none";
+            const backV = "w-8 h-10 bg-gradient-to-br from-red-600 via-rose-600 to-amber-500 rounded-md border border-amber-200 shadow-sm flex items-center justify-center text-[10px] text-white font-bold select-none";
+            fillFan('bot1-cards-fan', 1, backH);
+            fillFan('bot2-cards-fan', 2, backV);
+            fillFan('bot3-cards-fan', 3, backV);
+
+            // Player hand（重畫時保留捲動位置，避免手機上被彈回最左邊）
+            const handContainer = document.getElementById('player-hand');
+            const handArea = document.getElementById('hand-area');
+            const isMyTurn = gameState.turn === 0 && !dealView.active;
+            if (handArea) handArea.classList.toggle('my-turn', isMyTurn);
+
+            if (handContainer) {
+                const prevScroll = handContainer.scrollLeft;
+                handContainer.innerHTML = '';
+
+                const allCards = gameState.players[0].cards;
+                const humanCards = dealView.active ? allCards.slice(0, dealView.counts[0]) : allCards;
+                const pCount = document.getElementById('player-card-count');
+                if (pCount) pCount.textContent = humanCards.length;
+                const dim = !dealView.active && gameState.turn !== 0;
+
+                humanCards.forEach((card, idx) => {
+                    const cardWrapper = document.createElement('div');
+                    cardWrapper.className = `card-hover cursor-pointer ${dim ? 'opacity-75' : ''}`;
+                    cardWrapper.innerHTML = renderCardSVG(card, 'hand');
+                    if (dealView.active && idx === humanCards.length - 1) cardWrapper.classList.add('pop-in');
+
+                    if (isMyTurn) {
+                        cardWrapper.onclick = () => playCard(0, idx);
+                    }
+
+                    handContainer.appendChild(cardWrapper);
+                });
+
+                if (scrollHandToEndNext) {
+                    handContainer.scrollLeft = handContainer.scrollWidth;
+                    scrollHandToEndNext = false;
+                } else {
+                    handContainer.scrollLeft = prevScroll;
+                }
+            }
+        }
+
+        function advanceTurn() {
+            gameState.turn = (gameState.turn + gameState.direction + 4) % 4;
+        }
+
+        function isValidPlay(card) {
+            if (card.color === 'wild' || card.type === 'WILD' || card.type === 'WILD4') return true;
+            if (card.color === gameState.currentColor) return true;
+            if (card.type === 'INTERVAL' && card.interval === gameState.currentInterval) return true;
+            return false;
+        }
+
+        function playCard(playerIdx, cardIdx) {
+            if (dealView.active) return;
+            const player = gameState.players[playerIdx];
+            const card = player.cards[cardIdx];
+
+            if (playerIdx === 0 && gameState.turn !== 0) return;
+
+            if (!isValidPlay(card)) {
+                if (playerIdx === 0) {
+                    gameState.stats.humanInvalidPlays++;
+                    logMessage(`❌ 出牌不合規則！必須相同顏色 (${gameState.currentColor}) 或同音程度數 (${gameState.currentInterval}度)`);
+                    // 讓手機玩家也看得到錯誤訊息：短暫展開記錄簿一行即可（最新訊息本來就在第一行）
+                }
+                return;
+            }
+
+            // Valid play executed
+            player.cards.splice(cardIdx, 1);
+            gameState.discardPile.push(card);
+
+            if (card.type === 'INTERVAL') {
+                gameState.currentColor = card.color;
+                gameState.currentInterval = card.interval;
+                playCardIntervalSound(card);
+            }
+
+            if (playerIdx === 0) {
+                gameState.stats.humanValidPlays++;
+                if (card.type === 'INTERVAL') {
+                    gameState.stats.intervalBreakdown[card.interval] = (gameState.stats.intervalBreakdown[card.interval] || 0) + 1;
+                }
+            }
+
+            logMessage(`🎵 ${player.name} 打出了 ${card.color.toUpperCase()} ${card.type === 'INTERVAL' ? card.interval + '度音程卡' : card.type}`);
+
+            // Check Win Condition
+            if (player.cards.length === 0) {
+                updateUI();
+                showGameOver(player);
+                return;
+            }
+
+            // Action Cards
+            if (card.type === 'SKIP') {
+                advanceTurn();
+                logMessage(`🚫 ${gameState.players[gameState.turn].name} 被跳過了！`);
+            } else if (card.type === 'REVERSE') {
+                gameState.direction *= -1;
+                logMessage(`🔄 出牌順序反轉！`);
+            } else if (card.type === 'DRAW2') {
+                advanceTurn();
+                const target = gameState.players[gameState.turn];
+                drawCards(gameState.turn, 2);
+                logMessage(`💥 ${target.name} 被 +2 摸了兩張牌！`);
+            } else if (card.type === 'WILD' || card.type === 'WILD4') {
+                if (card.type === 'WILD4') {
+                    advanceTurn();
+                    drawCards(gameState.turn, 4);
+                }
+                if (player.isHuman) {
+                    updateUI();
+                    document.getElementById('wild-modal').classList.remove('hidden');
+                    return;
+                } else {
+                    const colors = ['red', 'blue', 'green', 'yellow'];
+                    gameState.currentColor = colors[Math.floor(Math.random() * colors.length)];
+                    logMessage(`🌈 ${player.name} 指定了新顏色：${gameState.currentColor.toUpperCase()}`);
+                }
+            }
+
+            advanceTurn();
+            updateUI();
+
+            if (!gameState.players[gameState.turn].isHuman) {
+                setTimeout(aiTurn, 1200);
+            }
+        }
+
+        function drawCards(playerIdx, count) {
+            for (let i = 0; i < count; i++) {
+                if (gameState.deck.length === 0) {
+                    const top = gameState.discardPile.pop();
+                    gameState.deck = gameState.discardPile.sort(() => Math.random() - 0.5);
+                    gameState.discardPile = [top];
+                }
+                if (gameState.deck.length > 0) {
+                    const c = gameState.deck.pop();
+                    gameState.players[playerIdx].cards.push(c);
+                    if (playerIdx === 0) gameState.stats.humanCardsDrawn++;
+                }
+            }
+        }
+
+        function humanDrawCard() {
+            if (dealView.active) return;
+            if (gameState.turn !== 0) return;
+            drawCards(0, 1);
+            logMessage(`🃏 你摸了一張牌`);
+            scrollHandToEndNext = true;   // 摸到的新牌在最右邊，自動捲過去讓你看到
+            advanceTurn();
+            updateUI();
+            if (!gameState.players[gameState.turn].isHuman) {
+                setTimeout(aiTurn, 1200);
+            }
+        }
+
+        function aiTurn() {
+            const botIdx = gameState.turn;
+            const bot = gameState.players[botIdx];
+            if (bot.isHuman) return;
+
+            const validIndices = [];
+            bot.cards.forEach((c, idx) => {
+                if (isValidPlay(c)) validIndices.push(idx);
+            });
+
+            if (validIndices.length > 0) {
+                const choice = validIndices[Math.floor(Math.random() * validIndices.length)];
+                playCard(botIdx, choice);
+            } else {
+                drawCards(botIdx, 1);
+                logMessage(`📥 ${bot.name} 無牌可出，摸了一張牌`);
+                advanceTurn();
+                updateUI();
+                if (!gameState.players[gameState.turn].isHuman) {
+                    setTimeout(aiTurn, 1200);
+                }
+            }
+        }
+
+        function shoutUNO() {
+            gameState.unoShouted = true;
+            logMessage(`📢 你大聲喊出了：UNO! 音程大冒險！`);
+        }
+
+        function startNewGame() {
+            dealToken++;
+            const token = dealToken;
+            clearFlyCards();
+
+            gameState.deck = buildDeck();
+            gameState.discardPile = [];
+            gameState.players.forEach(p => p.cards = []);
+            gameState.turn = 0;
+            gameState.direction = 1;
+            gameState.stats = { humanValidPlays: 0, humanInvalidPlays: 0, humanCardsDrawn: 0, intervalBreakdown: {} };
+
+            // 牌在邏輯上先一次發好，畫面再用動畫一張一張「飛」過去
+            for (let i = 0; i < 4; i++) {
+                drawCards(i, 7);
+            }
+
+            let startCard = gameState.deck.pop();
+            while (startCard.type !== 'INTERVAL') {
+                gameState.deck.unshift(startCard);
+                startCard = gameState.deck.pop();
+            }
+            gameState.discardPile.push(startCard);
+            gameState.currentColor = startCard.color;
+            gameState.currentInterval = startCard.interval;
+            gameInProgress = true;
+
+            logMessage(`🎮 經典對局開始！大家發放了 7 張牌。祝你好運！`);
+            const hc = document.getElementById('player-hand');
+            if (hc) hc.scrollLeft = 0;
+
+            // 系統設定「減少動態效果」或瀏覽器不支援動畫時，直接發牌
+            if (prefersReducedMotion() || !document.body.animate) {
+                dealView = { active: false, counts: [7, 7, 7, 7], sent: [7, 7, 7, 7], dealt: DEAL_TOTAL, startShown: true, handW: 64 };
+                setDealUI(false);
+                updateUI();
+                playCardIntervalSound(startCard);
+                return;
+            }
+
+            dealView = { active: true, counts: [0, 0, 0, 0], sent: [0, 0, 0, 0], dealt: 0, startShown: false, handW: 64 };
+            setDealUI(true);
+            updateUI();
+            dealView.handW = measureHandCardWidth();
+            setTimeout(() => dealStep(token, 0, startCard), 300);
+        }
+
+        // ===== 發牌動畫 =====
+        function setDealUI(on) {
+            const skip = document.getElementById('skip-deal-btn');
+            const sound = document.getElementById('sound-btn');
+            if (skip) skip.classList.toggle('show', on);
+            if (sound) sound.style.display = on ? 'none' : '';
+        }
+
+        function measureHandCardWidth() {
+            const t = document.createElement('div');
+            t.style.cssText = 'position:absolute;visibility:hidden;width:var(--hand-w);height:1px;left:-9999px;top:0;';
+            document.body.appendChild(t);
+            const w = t.getBoundingClientRect().width;
+            t.remove();
+            return w || 64;
+        }
+
+        function clearFlyCards() {
+            document.querySelectorAll('.fly-card').forEach(e => e.remove());
+        }
+
+        // 一張牌背從 from 飛到 to；w 是飛到終點時的牌寬
+        function flyBackCard(from, to, w, done, opts) {
+            opts = opts || {};
+            const h = w * 1.4;
+            const el = document.createElement('div');
+            el.className = 'fly-card';
+            el.style.width = w + 'px';
+            el.style.height = h + 'px';
+            el.style.fontSize = (w * 0.38) + 'px';
+            el.innerHTML = '<span style="opacity:.85">🎵</span>';
+            document.body.appendChild(el);
+
+            if (!el.animate) { el.remove(); done(); return; }
+
+            const sx = from.x - w / 2, sy = from.y - h / 2;
+            const tx = to.x - w / 2,   ty = to.y - h / 2;
+            const s0 = from.w ? from.w / w : 1;
+            const r0 = Math.random() * 30 - 15;
+
+            const anim = el.animate([
+                { transform: `translate(${sx}px, ${sy}px) rotate(${r0}deg) scale(${s0})` },
+                { transform: `translate(${tx}px, ${ty}px) rotate(0deg) scale(1)` }
+            ], { duration: opts.duration || 420, easing: 'cubic-bezier(.22,.8,.3,1)', fill: 'forwards' });
+
+            anim.onfinish = () => { el.remove(); done(); };
+        }
+
+        function deckCenter() {
+            const deckEl = document.querySelector('main .deck-back');
+            if (!deckEl) return null;
+            const d = deckEl.getBoundingClientRect();
+            return { x: d.left + d.width / 2, y: d.top + d.height / 2, w: d.width };
+        }
+
+        function dealOne(token, p) {
+            const from = deckCenter();
+            const land = () => {
+                if (token !== dealToken) return;
+                dealView.counts[p]++;
+                dealView.dealt++;
+                updateUI();
+            };
+            if (!from) { dealView.sent[p]++; land(); return; }
+
+            let to, w;
+            if (p === 0) {
+                const hc = document.getElementById('player-hand').getBoundingClientRect();
+                w = dealView.handW;
+                const gap = w * 0.08;
+                let cx = hc.left + 4 + dealView.sent[0] * (w + gap) + w / 2;
+                cx = Math.min(cx, hc.right - w / 2 - 4);
+                to = { x: cx, y: hc.top + hc.height / 2 };
+            } else {
+                const b = document.getElementById(`bot${p}-card`).getBoundingClientRect();
+                w = 34;
+                to = { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+            }
+            dealView.sent[p]++;
+            updateUI();          // 牌堆張數立刻減少
+            playDealTick();
+            flyBackCard(from, to, w, land);
+        }
+
+        function dealStep(token, i, startCard) {
+            if (token !== dealToken) return;
+            if (i >= DEAL_TOTAL) {
+                setTimeout(() => revealStartCard(token, startCard), 480);
+                return;
+            }
+            dealOne(token, i % 4);
+            setTimeout(() => dealStep(token, i + 1, startCard), 90);
+        }
+
+        // 發完牌後，翻開第一張牌放到出牌區
+        function revealStartCard(token, startCard) {
+            if (token !== dealToken) return;
+            const slot = document.getElementById('top-slot');
+            const from = deckCenter();
+            if (!slot || !from) { finishDeal(token, startCard); return; }
+            const s = slot.getBoundingClientRect();
+            flyBackCard(from, { x: s.left + s.width / 2, y: s.top + s.height / 2 }, s.width, () => {
+                if (token !== dealToken) return;
+                dealView.startShown = true;
+                updateUI();
+                const topEl = document.querySelector('#top-card-container .uno-card');
+                if (topEl) topEl.classList.add('flip-reveal');
+                playCardIntervalSound(startCard);
+                setTimeout(() => finishDeal(token, startCard), 600);
+            }, { duration: 480 });
+        }
+
+        function finishDeal(token) {
+            if (token !== dealToken) return;
+            dealView.active = false;
+            setDealUI(false);
+            updateUI();
+            logMessage('🃏 發牌完成！輪到你先出牌。');
+        }
+
+        function skipDeal() {
+            if (!dealView.active) return;
+            dealToken++;
+            clearFlyCards();
+            dealView = { active: false, counts: [7, 7, 7, 7], sent: [7, 7, 7, 7], dealt: DEAL_TOTAL, startShown: true, handW: dealView.handW };
+            setDealUI(false);
+            updateUI();
+            const top = gameState.discardPile[gameState.discardPile.length - 1];
+            playCardIntervalSound(top);
+            logMessage('⏩ 已略過發牌動畫。輪到你先出牌。');
+        }
+
+        // ===== 開始畫面 =====
+        function updateDiffButton() {
+            const btn = document.getElementById('diff-btn');
+            if (!btn) return;
+            btn.innerHTML = gameState.difficulty === 'EASY'
+                ? '<span>🌱</span><span class="btn-label">初階 (Do 起始)</span>'
+                : '<span>🌿</span><span class="btn-label">進階 (全音域 A3-C6)</span>';
+        }
+
+        function chooseDifficulty(level) {
+            initAudio();   // 在使用者點擊時啟動音訊（手機瀏覽器需要）
+            gameState.difficulty = level;
+            updateDiffButton();
+            const s = document.getElementById('start-screen');
+            s.classList.add('hide');
+            setTimeout(() => {
+                s.classList.add('gone');
+                startNewGame();
+            }, 320);
+        }
+
+        function showStartScreen() {
+            dealToken++;
+            clearFlyCards();
+            if (dealView.active) {
+                dealView = { active: false, counts: [7, 7, 7, 7], sent: [7, 7, 7, 7], dealt: DEAL_TOTAL, startShown: true, handW: dealView.handW };
+                setDealUI(false);
+                updateUI();
+            }
+            ['gameover-modal', 'wild-modal'].forEach(id => document.getElementById(id).classList.add('hidden'));
+            const s = document.getElementById('start-screen');
+            const resume = document.getElementById('resume-btn');
+            if (resume) resume.style.display = gameInProgress ? '' : 'none';
+            s.classList.remove('gone');
+            s.classList.remove('intro');
+            void s.offsetWidth;
+            s.classList.remove('hide');
+            s.classList.add('intro');
+        }
+
+        function resumeGame() {
+            const s = document.getElementById('start-screen');
+            s.classList.add('hide');
+            setTimeout(() => s.classList.add('gone'), 320);
+        }
+
+        function renderStartFan() {
+            const fan = document.getElementById('start-fan');
+            if (!fan) return;
+            const specs = [['red', 3, '-14deg'], ['blue', 5, '0deg'], ['yellow', 8, '14deg']];
+            fan.innerHTML = specs.map(([color, deg, rot]) =>
+                `<div class="fan-item" style="--r:${rot}">${renderCardSVG(createCard('INTERVAL', color, deg, 2), 'mini')}</div>`
+            ).join('');
+        }
+
+        function playTopCardAudio() {
+            const topCard = gameState.discardPile[gameState.discardPile.length - 1];
+            if (topCard) playCardIntervalSound(topCard);
+        }
+
+        function toggleDifficulty() {
+            gameState.difficulty = (gameState.difficulty === 'EASY') ? 'ADVANCED' : 'EASY';
+            updateDiffButton();
+            logMessage(`🎮 切換難度為：${gameState.difficulty === 'EASY' ? '初階關卡 (中央 Do 起始)' : '進階關卡 (全音域 A3-C6)'}`);
+            startNewGame();
+        }
+
+        function togglePitchHelper() {
+            if (!gameState.showPitchHelper) {
+                openPwdModal();
+            } else {
+                gameState.showPitchHelper = false;
+                document.getElementById('helper-btn-text').textContent = '💡 唱名提示：關';
+                document.getElementById('helper-lock-icon').className = 'fa-solid fa-lock text-amber-400 text-[11px]';
+                updateUI();
+            }
+        }
+
+        function openPwdModal() {
+            document.getElementById('pwd-input').value = '';
+            document.getElementById('pwd-error').classList.add('hidden');
+            document.getElementById('pwd-modal').classList.remove('hidden');
+            setTimeout(() => document.getElementById('pwd-input').focus(), 100);
+        }
+
+        function closePwdModal() { document.getElementById('pwd-modal').classList.add('hidden'); }
+
+        function verifyPassword() {
+            const inputVal = document.getElementById('pwd-input').value.trim();
+            if (inputVal === 'tmes2026') {
+                gameState.showPitchHelper = true;
+                document.getElementById('helper-btn-text').textContent = '💡 唱名提示：開';
+                document.getElementById('helper-lock-icon').className = 'fa-solid fa-lock-open text-emerald-400 text-[11px]';
+                closePwdModal();
+                logMessage("🔑 教師驗證成功！已開啟唱名提示。");
+                updateUI();
+            } else {
+                document.getElementById('pwd-error').classList.remove('hidden');
+            }
+        }
+
+        function openRulesModal() { document.getElementById('rules-modal').classList.remove('hidden'); }
+        function closeRulesModal() { document.getElementById('rules-modal').classList.add('hidden'); }
+        function openChartModal() { document.getElementById('chart-modal').classList.remove('hidden'); }
+        function closeChartModal() { document.getElementById('chart-modal').classList.add('hidden'); }
+
+        function selectWildColor(color) {
+            gameState.currentColor = color;
+            document.getElementById('wild-modal').classList.add('hidden');
+            logMessage(`🌈 你指定了新顏色：${color.toUpperCase()}`);
+            advanceTurn();
+            updateUI();
+            if (!gameState.players[gameState.turn].isHuman) {
+                setTimeout(aiTurn, 1200);
+            }
+        }
+
+        function showGameOver(winner) {
+            gameInProgress = false;
+            const modal = document.getElementById('gameover-modal');
+            const emojiEl = document.getElementById('winner-emoji');
+            const titleEl = document.getElementById('winner-title');
+            const descEl = document.getElementById('winner-desc');
+            const reportContainer = document.getElementById('teacher-report-container');
+
+            const isHumanWinner = winner.isHuman;
+            if (emojiEl) emojiEl.textContent = isHumanWinner ? '🏆' : '👧🏻';
+            if (titleEl) titleEl.textContent = isHumanWinner ? '勝利！Victory!' : `${winner.name} 獲勝！`;
+            if (descEl) descEl.textContent = isHumanWinner ? '恭喜你成功打光所有手牌！' : `${winner.name} 率先清空手牌！再接再厲！`;
+
+            const totalPlays = gameState.stats.humanValidPlays + gameState.stats.humanInvalidPlays;
+            const accuracy = totalPlays > 0 ? Math.round((gameState.stats.humanValidPlays / totalPlays) * 100) : 0;
+
+            let breakdownHtml = '';
+            for (let deg = 1; deg <= 8; deg++) {
+                const count = gameState.stats.intervalBreakdown[deg] || 0;
+                breakdownHtml += `
+                    <div class="bg-slate-800 p-1 rounded-lg text-center border border-slate-700">
+                        <div class="text-[10px] text-amber-300 font-bold">${deg}度</div>
+                        <div class="text-xs font-black text-white">${count}次</div>
+                    </div>
+                `;
+            }
+
+            if (reportContainer) {
+                reportContainer.innerHTML = `
+                    <div class="bg-slate-800/80 border border-amber-400/50 rounded-2xl p-2.5 text-left text-xs space-y-1.5">
+                        <div class="font-black text-amber-300 text-xs flex justify-between items-center border-b border-slate-700 pb-1">
+                            <span>📊 學生學習評量診斷報告</span>
+                            <span class="text-[11px] font-black text-emerald-400">${accuracy}% 正確率</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-1.5 py-0.5">
+                            <div class="bg-emerald-950/80 p-1.5 rounded-xl text-center border border-emerald-400/50">
+                                <div class="text-[10px] text-emerald-300 font-bold">正確出牌</div>
+                                <div class="text-xs font-black text-emerald-200">${gameState.stats.humanValidPlays}</div>
+                            </div>
+                            <div class="bg-rose-950/80 p-1.5 rounded-xl text-center border border-rose-400/50">
+                                <div class="text-[10px] text-rose-300 font-bold">錯誤出牌</div>
+                                <div class="text-xs font-black text-rose-200">${gameState.stats.humanInvalidPlays}</div>
+                            </div>
+                            <div class="bg-sky-950/80 p-1.5 rounded-xl text-center border border-sky-400/50">
+                                <div class="text-[10px] text-sky-300 font-bold">補抽卡牌</div>
+                                <div class="text-xs font-black text-sky-200">${gameState.stats.humanCardsDrawn}</div>
+                            </div>
+                        </div>
+                        <div class="font-black text-amber-200 text-[11px]">🎵 各度數音程出牌統計：</div>
+                        <div class="grid grid-cols-4 gap-1">
+                            ${breakdownHtml}
+                        </div>
+                    </div>
+                `;
+            }
+
+            if (modal) modal.classList.remove('hidden');
+        }
+
+        // =====================================================
+        //  教學模式：① 認識牌卡 → ② 抽牌練習（初階 / 進階）
+        // =====================================================
+        const ZH_NUM = ['一度', '二度', '三度', '四度', '五度', '六度', '七度', '八度'];
+        const teach = {
+            active: false,
+            level: 'EASY',      // 'EASY' 初階（從 Do 開始）／'ADVANCED' 進階（不同起音）
+            phase: 'learn',     // 'learn' | 'practice'
+            cards: [],          // 認識牌卡：一到八度各一張
+            idx: 0,
+            overview: false,    // 是否顯示「全部牌卡總覽」
+            practice: null
+        };
+
+        function shuffleArr(a) {
+            const r = a.slice();
+            for (let i = r.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [r[i], r[j]] = [r[j], r[i]];
+            }
+            return r;
+        }
+        function degWord(d) { return getIntervalOrdinal(d).sentence.word; }
+        function sentenceHTML(d) {
+            const s = getIntervalOrdinal(d).sentence;
+            return `${s.pre}<span class="w">${s.word}</span>${s.post}`;
+        }
+
+        // 初階：每張都從中央 Do (索引 2) 開始；進階：起音隨機，並盡量避免重複
+        function makeTeachCard(degree, level, color, usedRoots) {
+            let rootIdx = 2;
+            if (level !== 'EASY') {
+                const maxRoot = DIATONIC_NOTES.length - degree;
+                for (let t = 0; t < 30; t++) {
+                    rootIdx = Math.floor(Math.random() * (maxRoot + 1));
+                    if (!usedRoots || !usedRoots.includes(rootIdx)) break;
+                }
+                if (usedRoots) usedRoots.push(rootIdx);
+            }
+            return createCard('INTERVAL', color, degree, rootIdx);
+        }
+        function buildLearnCards(level) {
+            const used = [];
+            return [1, 2, 3, 4, 5, 6, 7, 8].map(d => makeTeachCard(d, level, CARD_COLORS[(d - 1) % 4], used));
+        }
+
+        // 「數一數」：從下面的音數到上面的音，頭尾都要數
+        function chipsHTML(card) {
+            const li = DIATONIC_NOTES.indexOf(card.lowerNote);
+            const n = card.interval;
+            let h = '';
+            for (let k = 0; k < n; k++) {
+                const note = DIATONIC_NOTES[li + k];
+                const cls = k === 0 ? 'lo' : (k === n - 1 ? 'hi' : '');
+                h += `<span class="chip ${cls}"><b>${k + 1}</b>${note.solfege}</span>`;
+            }
+            return h;
+        }
+        function notesLine(card) {
+            const a = card.lowerNote.solfege, b = card.upperNote.solfege;
+            return card.interval === 1 ? `${a} = ${b}（同一個音 same note）` : `${a} → ${b}`;
+        }
+
+        // 聽音：先一個一個，再一起彈
+        function playTeachSound(card) {
+            if (!card) return;
+            playPianoTone(card.lowerNote.midi, 0, 0.9);
+            playPianoTone(card.upperNote.midi, 0.75, 0.9);
+            playPianoTone(card.lowerNote.midi, 1.7, 1.4);
+            playPianoTone(card.upperNote.midi, 1.7, 1.4);
+        }
+
+        // ---------- 進出教學模式 ----------
+        function startTeaching(level) {
+            initAudio();   // 手機瀏覽器需要在點擊時啟動音訊
+            teach.active = true;
+            teach.level = level;
+            teach.cards = buildLearnCards(level);
+            teach.idx = 0;
+            teach.overview = false;
+            teach.practice = null;
+
+            const s = document.getElementById('start-screen');
+            s.classList.add('hide');
+            setTimeout(() => { if (teach.active) s.classList.add('gone'); }, 320);
+
+            document.getElementById('teach-screen').classList.remove('gone');
+            showTeachPhase('learn');
+            renderLearn();
+        }
+
+        function exitTeaching() {
+            teach.active = false;
+            document.getElementById('teach-screen').classList.add('gone');
+            showStartScreen();
+        }
+
+        function startGameFromTeaching() {
+            teach.active = false;
+            document.getElementById('teach-screen').classList.add('gone');
+            gameState.difficulty = teach.level;
+            updateDiffButton();
+            startNewGame();
+        }
+
+        function renderTeachTop() {
+            const t = document.getElementById('teach-screen');
+            t.dataset.level = teach.level;
+            const easy = teach.level === 'EASY';
+            document.getElementById('teach-badge').textContent = easy ? '🌱 初階教學 Beginner Lesson' : '🌿 進階教學 Advanced Lesson';
+            document.getElementById('teach-sub').textContent = easy
+                ? '每張牌卡的音程都從中央 Do 開始 · Every card starts from middle C (Do)'
+                : '牌卡會從不同的音開始 · Cards can start from any note';
+            document.getElementById('step-learn').classList.toggle('on', teach.phase === 'learn');
+            document.getElementById('step-prac').classList.toggle('on', teach.phase === 'practice');
+        }
+
+        function showTeachPhase(ph) {
+            teach.phase = ph;
+            document.getElementById('teach-learn').classList.toggle('show', ph === 'learn');
+            document.getElementById('teach-practice').classList.toggle('show', ph === 'practice');
+            renderTeachTop();
+            document.getElementById('teach-screen').scrollTop = 0;
+        }
+        function goLearn() { showTeachPhase('learn'); renderLearn(); }
+        function goPractice() {
+            if (!teach.practice) startPracticeRound();
+            showTeachPhase('practice');
+            renderPractice();
+        }
+        function restartPractice() {
+            startPracticeRound();
+            showTeachPhase('practice');
+        }
+
+        // ---------- 步驟①：認識牌卡 ----------
+        function learnGo(i) {
+            teach.idx = Math.max(0, Math.min(teach.cards.length - 1, i));
+            teach.overview = false;
+            renderLearn();
+        }
+        function learnMove(dir) { learnGo(teach.idx + dir); }
+        function toggleOverview() { teach.overview = !teach.overview; renderLearn(); }
+        function playLearnSound() { playTeachSound(teach.cards[teach.idx]); }
+
+        function renderLearn() {
+            const c = teach.cards[teach.idx];
+            const d = c.interval;
+            const last = teach.idx >= teach.cards.length - 1;
+
+            document.getElementById('learn-body').style.display = teach.overview ? 'none' : '';
+            const grid = document.getElementById('learn-grid');
+            grid.classList.toggle('show', teach.overview);
+            document.getElementById('overview-btn').textContent = teach.overview ? '🃏 單張講解 One by one' : '🔍 全部牌卡 Overview';
+            document.getElementById('to-practice-btn').classList.toggle('pulse', last || teach.overview);
+
+            if (teach.overview) {
+                grid.innerHTML = teach.cards.map((card, i) => `
+                    <button class="ov-cell ${i === teach.idx ? 'cur' : ''}" onclick="learnGo(${i})" aria-label="${ZH_NUM[i]} ${degWord(i + 1)}">
+                        ${renderCardSVG(card, 'ov', { helper: true })}
+                        <div class="ov-cap"><b>${ZH_NUM[i]}</b><span>${degWord(i + 1)}</span></div>
+                    </button>`).join('');
+            } else {
+                const wrap = document.getElementById('learn-card');
+                wrap.innerHTML = renderCardSVG(c, 'teach', { helper: true });
+                const el = wrap.querySelector('.uno-card');
+                if (el) el.classList.add('flip-reveal');
+
+                document.getElementById('learn-info-body').innerHTML = `
+                    <div class="deg-zh">${ZH_NUM[d - 1]}</div>
+                    <div class="deg-en">${degWord(d)} · ${getIntervalOrdinal(d).en}</div>
+                    <div class="sentence">${sentenceHTML(d)}</div>
+                    <div class="notes-line">${notesLine(c)}</div>
+                    <div class="count-cap">數一數，頭尾都要數 · Count both the first and last notes</div>
+                    <div class="chips">${chipsHTML(c)}</div>`;
+            }
+
+            document.getElementById('nav-prev').disabled = teach.idx === 0;
+            document.getElementById('nav-next').disabled = last;
+            document.getElementById('learn-dots').innerHTML = teach.cards.map((_, i) =>
+                `<button class="dot ${i === teach.idx && !teach.overview ? 'cur' : ''}" onclick="learnGo(${i})" aria-label="${ZH_NUM[i]} ${degWord(i + 1)}">${i + 1}</button>`
+            ).join('');
+        }
+
+        // ---------- 步驟②：抽牌練習 ----------
+        // stage：ready 等待抽牌 → answering 作答中 → feedback 看回饋 → done 看結果
+        function startPracticeRound() {
+            const used = [];
+            const degs = shuffleArr([1, 2, 3, 4, 5, 6, 7, 8]);
+            teach.practice = {
+                deck: degs.map(d => makeTeachCard(d, teach.level, CARD_COLORS[Math.floor(Math.random() * 4)], teach.level === 'EASY' ? null : used)),
+                drawn: null,
+                stage: 'ready',
+                n: 0,
+                total: degs.length,
+                correct: 0,
+                hint: false,
+                picked: null,
+                misses: []
+            };
+            renderPractice();
+        }
+
+        function teachDraw() {
+            const p = teach.practice;
+            if (!p || p.stage !== 'ready' || p.deck.length === 0) return;
+            initAudio();
+            p.drawn = p.deck.pop();
+            p.n++;
+            p.stage = 'answering';
+            p.hint = false;
+            p.picked = null;
+            playDealTick();
+            renderPractice(true);
+            setTimeout(() => { if (teach.practice === p && p.drawn && p.stage === 'answering') playTeachSound(p.drawn); }, 420);
+        }
+
+        function teachAnswer(deg) {
+            const p = teach.practice;
+            if (!p || p.stage !== 'answering') return;
+            p.picked = deg;
+            p.stage = 'feedback';
+            if (deg === p.drawn.interval) {
+                p.correct++;
+                playPianoTone(79, 0, 0.3);
+                playPianoTone(84, 0.12, 0.5);
+            } else {
+                p.misses.push(p.drawn.interval);
+            }
+            renderPractice();
+        }
+
+        function teachNext() {
+            const p = teach.practice;
+            if (!p || p.stage !== 'feedback') return;
+            p.drawn = null;
+            p.hint = false;
+            p.picked = null;
+            p.stage = p.deck.length === 0 ? 'done' : 'ready';
+            renderPractice();
+        }
+
+        function teachListen() {
+            const p = teach.practice;
+            if (p && p.drawn) playTeachSound(p.drawn);
+        }
+        function teachHint() {
+            const p = teach.practice;
+            if (!p || p.stage !== 'answering') return;
+            p.hint = true;
+            renderPractice();
+        }
+
+        function renderPractice(flip) {
+            const p = teach.practice;
+            if (!p) return;
+            const done = p.stage === 'done';
+
+            document.getElementById('prac-body').style.display = done ? 'none' : '';
+            document.getElementById('prac-result').style.display = done ? 'flex' : 'none';
+            document.getElementById('prac-prog').textContent = `第 ${p.n}/${p.total} 題 · Q${p.n}/${p.total}`;
+            document.getElementById('prac-score').textContent = `✅ ${p.correct}`;
+            if (done) { renderPracResult(); return; }
+
+            // 牌堆與抽到的牌
+            const deckEl = document.getElementById('teach-deck');
+            deckEl.classList.toggle('ready', p.stage === 'ready');
+            deckEl.classList.toggle('disabled', p.stage !== 'ready');
+            document.getElementById('teach-deck-count').textContent = p.deck.length;
+
+            const drawnEl = document.getElementById('teach-drawn');
+            if (p.drawn) {
+                drawnEl.innerHTML = renderCardSVG(p.drawn, 'teachp', { helper: p.hint || p.stage === 'feedback' });
+                if (flip) {
+                    const el = drawnEl.querySelector('.uno-card');
+                    if (el) el.classList.add('flip-reveal');
+                }
+            } else {
+                drawnEl.innerHTML = '<div class="card-slot teach-slot"></div>';
+            }
+
+            // 提示文字
+            document.getElementById('prac-prompt').innerHTML = p.stage === 'ready'
+                ? '點一下牌堆，抽一張牌！<small>Tap the deck to draw a card!</small>'
+                : '這是幾度音程？<small>What interval is this?</small>';
+
+            // 八個答案按鈕（雙語）
+            const right = p.drawn ? p.drawn.interval : 0;
+            document.getElementById('prac-ans-grid').innerHTML = [1, 2, 3, 4, 5, 6, 7, 8].map(d => {
+                let cls = 't-ans';
+                if (p.stage === 'feedback') {
+                    if (d === right) cls += ' ok';
+                    else if (d === p.picked) cls += ' bad';
+                }
+                const dis = p.stage !== 'answering' ? 'disabled' : '';
+                return `<button class="${cls}" ${dis} onclick="teachAnswer(${d})"><span class="zh">${ZH_NUM[d - 1]}</span><span class="en">${degWord(d)}</span></button>`;
+            }).join('');
+
+            // 回饋
+            const fb = document.getElementById('prac-feedback');
+            if (p.stage === 'feedback') {
+                const ok = p.picked === right;
+                fb.innerHTML = `
+                    <div class="fb ${ok ? 'ok' : 'bad'}">
+                        <div class="fb-title">${ok ? '✅ 答對了！Correct!' : '❌ 一起來看看！Let\'s check it together.'}</div>
+                        ${ok ? '' : `<div class="fb-note">你選了 You chose: ${ZH_NUM[p.picked - 1]} · ${degWord(p.picked)}</div>`}
+                        <div class="fb-sentence">${sentenceHTML(right)}</div>
+                        <div class="fb-note">${ZH_NUM[right - 1]} · ${notesLine(p.drawn)}</div>
+                        <div class="chips">${chipsHTML(p.drawn)}</div>
+                    </div>`;
+            } else {
+                fb.innerHTML = '';
+            }
+
+            // 按鈕列
+            let h = '';
+            if (p.stage === 'answering') {
+                h += `<button class="tbtn sound" onclick="teachListen()">🔊 聽聽看 Listen</button>`;
+                h += `<button class="tbtn" onclick="teachHint()" ${p.hint ? 'disabled' : ''}>💡 提示 Hint</button>`;
+            } else if (p.stage === 'feedback') {
+                h += `<button class="tbtn sound" onclick="teachListen()">🔊 再聽一次 Listen again</button>`;
+                h += `<button class="tbtn primary pulse" onclick="teachNext()">${p.deck.length ? '抽下一張牌 Draw next ▶' : '看結果 See results ▶'}</button>`;
+            }
+            document.getElementById('prac-actions').innerHTML = h;
+        }
+
+        function renderPracResult() {
+            const p = teach.practice;
+            const stars = p.correct >= 7 ? '⭐⭐⭐' : (p.correct >= 5 ? '⭐⭐' : '⭐');
+            const msg = p.correct === p.total ? '太厲害了，全部答對！Perfect!'
+                : (p.correct >= 5 ? '做得很好！Great job!' : '繼續加油！Keep practicing!');
+            const missed = [...new Set(p.misses)].sort((a, b) => a - b);
+            document.getElementById('prac-result').innerHTML = `
+                <div class="res-stars">${stars}</div>
+                <div class="res-score">${p.correct} / ${p.total}</div>
+                <div class="fb-title">${msg}</div>
+                ${missed.length ? `
+                    <div class="fb-note">要再複習 Review:</div>
+                    <div class="chips">${missed.map(d => `<span class="chip"><b>${degWord(d)}</b>${ZH_NUM[d - 1]}</span>`).join('')}</div>` : ''}
+                <div class="learn-actions">
+                    <button class="tbtn primary" onclick="restartPractice()">🔁 再練習一輪 Practice again</button>
+                    <button class="tbtn" onclick="goLearn()">🃏 複習牌卡 Review cards</button>
+                    <button class="tbtn sound" onclick="startGameFromTeaching()">🎮 開始遊戲 Play the game</button>
+                    <button class="tbtn" onclick="exitTeaching()">🏠 主選單 Menu</button>
+                </div>`;
+        }
+
+        // 鍵盤：認識牌卡用 ← →；練習作答時可按 1–8
+        document.addEventListener('keydown', (e) => {
+            if (!teach.active) return;
+            const tag = (e.target && e.target.tagName) || '';
+            if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+            if (teach.phase === 'learn' && !teach.overview) {
+                if (e.key === 'ArrowRight') { learnMove(1); e.preventDefault(); }
+                else if (e.key === 'ArrowLeft') { learnMove(-1); e.preventDefault(); }
+            } else if (teach.phase === 'practice' && teach.practice && teach.practice.stage === 'answering') {
+                if (/^[1-8]$/.test(e.key)) teachAnswer(parseInt(e.key, 10));
+            }
+        });
+
+        // ===== 卡片大小手動調整（A− / A＋），會記住上次設定 =====
+        let zoomLevel = 1;
+        function applyZoom() {
+            document.documentElement.style.setProperty('--zoom', zoomLevel);
+        }
+        function changeZoom(delta) {
+            zoomLevel = Math.min(1.6, Math.max(0.7, Math.round((zoomLevel + delta) * 100) / 100));
+            applyZoom();
+            try { localStorage.setItem('intervalUnoZoom', String(zoomLevel)); } catch (e) {}
+        }
+
+        // Global functions binding for inline handlers
+        window.selectWildColor = selectWildColor;
+        window.startNewGame = startNewGame;
+        window.humanDrawCard = humanDrawCard;
+        window.shoutUNO = shoutUNO;
+        window.toggleDifficulty = toggleDifficulty;
+        window.togglePitchHelper = togglePitchHelper;
+        window.openPwdModal = openPwdModal;
+        window.closePwdModal = closePwdModal;
+        window.verifyPassword = verifyPassword;
+        window.openRulesModal = openRulesModal;
+        window.closeRulesModal = closeRulesModal;
+        window.openChartModal = openChartModal;
+        window.closeChartModal = closeChartModal;
+        window.playTopCardAudio = playTopCardAudio;
+        window.changeZoom = changeZoom;
+        window.chooseDifficulty = chooseDifficulty;
+        window.showStartScreen = showStartScreen;
+        window.resumeGame = resumeGame;
+        window.skipDeal = skipDeal;
+        window.startTeaching = startTeaching;
+        window.exitTeaching = exitTeaching;
+        window.startGameFromTeaching = startGameFromTeaching;
+        window.goLearn = goLearn;
+        window.goPractice = goPractice;
+        window.restartPractice = restartPractice;
+        window.learnGo = learnGo;
+        window.learnMove = learnMove;
+        window.toggleOverview = toggleOverview;
+        window.playLearnSound = playLearnSound;
+        window.teachDraw = teachDraw;
+        window.teachAnswer = teachAnswer;
+        window.teachNext = teachNext;
+        window.teachListen = teachListen;
+        window.teachHint = teachHint;
+
+        // 全螢幕切換功能 (雙模全螢幕：原生 API + 擬態 CSS 滿版備援)
+        let isPseudoFullscreen = false;
+
+        async function toggleFullScreen() {
+            const isNativeFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
+
+            if (isNativeFS || isPseudoFullscreen) {
+                if (document.exitFullscreen) {
+                    try { await document.exitFullscreen(); } catch(e) {}
+                } else if (document.webkitExitFullscreen) {
+                    try { await document.webkitExitFullscreen(); } catch(e) {}
+                }
+                document.body.classList.remove('pseudo-fullscreen-active');
+                isPseudoFullscreen = false;
+                updateFullscreenButton();
+            } else {
+                let nativeSuccess = false;
+                try {
+                    if (document.documentElement.requestFullscreen) {
+                        await document.documentElement.requestFullscreen();
+                        nativeSuccess = true;
+                    } else if (document.documentElement.webkitRequestFullscreen) {
+                        await document.documentElement.webkitRequestFullscreen();
+                        nativeSuccess = true;
+                    }
+                } catch (err) {
+                    console.log("原生全螢幕請求被權限限制，自動切換為擬態全螢幕模式", err);
+                }
+
+                // iPhone Safari 沒有原生全螢幕：改用擬態滿版
+                if (!nativeSuccess && !(document.fullscreenElement || document.webkitFullscreenElement)) {
+                    document.body.classList.add('pseudo-fullscreen-active');
+                    isPseudoFullscreen = true;
+                    updateFullscreenButton();
+                }
+            }
+        }
+
+        function updateFullscreenButton() {
+            const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement) || isPseudoFullscreen;
+            const icon = document.getElementById('fullscreen-icon');
+            const text = document.getElementById('fullscreen-text');
+            if (icon && text) {
+                if (isFS) {
+                    icon.className = 'fa-solid fa-compress text-indigo-400 text-[11px]';
+                    text.textContent = '退出全螢幕';
+                } else {
+                    icon.className = 'fa-solid fa-expand text-indigo-400 text-[11px]';
+                    text.textContent = '全螢幕';
+                }
+            }
+        }
+
+        document.addEventListener('fullscreenchange', updateFullscreenButton);
+        document.addEventListener('webkitfullscreenchange', updateFullscreenButton);
+
+        window.toggleFullScreen = toggleFullScreen;
+
+        window.onload = function() {
+            try {
+                const saved = parseFloat(localStorage.getItem('intervalUnoZoom'));
+                if (!isNaN(saved)) { zoomLevel = Math.min(1.6, Math.max(0.7, saved)); applyZoom(); }
+            } catch (e) {}
+
+            document.querySelectorAll('.wild-color-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const color = this.getAttribute('data-wild-color');
+                    if (color) selectWildColor(color);
+                });
+            });
+
+            const pwdInput = document.getElementById('pwd-input');
+            if (pwdInput) {
+                pwdInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') verifyPassword();
+                });
+            }
+
+            // 一開始先顯示「選擇難度」的開始畫面，選好難度後才發牌
+            renderStartFan();
+            updateUI();
+        };
+    </script>
+</body>
+</html>
